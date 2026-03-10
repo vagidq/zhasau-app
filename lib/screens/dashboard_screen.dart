@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../data/mock_data.dart';
+import '../models/habit_model.dart';
+import '../services/habit_service.dart';
 import '../widgets/goal_card_horizontal.dart';
 import '../widgets/task_item_widget.dart';
 import 'main_shell.dart';
@@ -15,7 +17,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  void _refresh() => setState(() {});
+  final HabitService _habitService = HabitService();
 
   final _quickAddController = TextEditingController();
   final _quickAddFocus = FocusNode();
@@ -306,45 +308,105 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(height: 24),
 
                     // Today Tasks
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Задачи на сегодня',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryLight,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text('3 задачи',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                    StreamBuilder<List<HabitModel>>(
+                      stream: _habitService.getHabits(),
+                      builder: (context, snapshot) {
+                        final habits = snapshot.data ?? const <HabitModel>[];
+                        final visibleHabits = habits.take(3).toList();
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Задачи на сегодня',
+                                  style: TextStyle(
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primaryLight,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text('${visibleHabits.length} задачи',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    GestureDetector(
+                                      onTap: _addTestHabit,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary,
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: const Text(
+                                          'TEST',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                          ),
-                        ),
-                      ],
+                            const SizedBox(height: 16),
+                            if (snapshot.hasError)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  'Ошибка загрузки привычек',
+                                  style: TextStyle(color: AppColors.red),
+                                ),
+                              )
+                            else if (snapshot.connectionState ==
+                                    ConnectionState.waiting &&
+                                habits.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 12),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            else if (visibleHabits.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  'Пока нет привычек',
+                                  style: TextStyle(color: AppColors.textMuted),
+                                ),
+                              )
+                            else
+                              ...visibleHabits.map(
+                                (habit) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: TaskItemWidget(
+                                    task: _habitToTask(habit),
+                                    onToggle: () => _toggleHabit(habit),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
-                    const SizedBox(height: 16),
-                    ...MockData.tasks.take(3).map(
-                          (t) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: TaskItemWidget(
-                              task: t,
-                              onToggle: () {
-                                _toggleTask(t);
-                                _refresh();
-                              },
-                            ),
-                          ),
-                        ),
                   ],
                 ),
               ),
@@ -361,37 +423,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _submitQuickAdd(String text) {
+  Future<void> _submitQuickAdd(String text) async {
     _quickAddFocus.unfocus();
     if (text.trim().isEmpty) {
       // Если пусто — просто открываем полный экран
       Navigator.of(context).push(_slideRoute(const CreateTaskScreen(isFullPage: true)));
       return;
     }
-    // Если есть текст — показываем тост и очищаем поле
-    _quickAddController.clear();
-    MainShell.of(context).showToast('Задача добавлена!');
+    try {
+      await _habitService.addHabit(
+        HabitModel(
+          title: text.trim(),
+          completed: false,
+          createdAt: DateTime.now(),
+        ),
+      );
+      _quickAddController.clear();
+      MainShell.of(context).showToast('Задача добавлена!');
+    } catch (_) {
+      MainShell.of(context).showToast('Ошибка сохранения', isError: true);
+    }
   }
 
-  void _toggleTask(task) {
-    task.completed = !task.completed;
-    if (task.completed) {
-      if (task.isXp) {
-        MockData.user.xp = (MockData.user.xp + task.reward).toInt();
-        MainShell.of(context).showToast('+${task.reward} XP!');
-      } else if (task.reward > 0) {
-        MockData.user.coins = (MockData.user.coins + task.reward).toInt();
-        MainShell.of(context).showToast('+${task.reward} монет!');
-      } else {
-        MainShell.of(context).showToast('Задача выполнена!');
-      }
-    } else {
-      if (task.isXp) {
-        MockData.user.xp = (MockData.user.xp - task.reward).toInt();
-      } else {
-        MockData.user.coins = (MockData.user.coins - task.reward).toInt();
-      }
+  Future<void> _toggleHabit(HabitModel habit) async {
+    try {
+      await _habitService.updateHabit(
+        habit.copyWith(completed: !habit.completed),
+      );
+      if (!mounted) return;
+      MainShell.of(context).showToast(
+        habit.completed ? 'Отмечено как невыполнено' : 'Задача выполнена!',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      MainShell.of(context).showToast('Ошибка обновления', isError: true);
     }
+  }
+
+  Future<void> _addTestHabit() async {
+    try {
+      await _habitService.addHabit(
+        HabitModel(
+          title: 'Test Habit',
+          completed: false,
+          createdAt: DateTime.now(),
+        ),
+      );
+      if (!mounted) return;
+      MainShell.of(context).showToast('Test Habit сохранен');
+    } catch (_) {
+      if (!mounted) return;
+      MainShell.of(context).showToast('Ошибка Firestore', isError: true);
+    }
+  }
+
+  TaskModel _habitToTask(HabitModel habit) {
+    return TaskModel(
+      id: habit.id ?? '',
+      title: habit.title,
+      subtitle: 'Firestore • habits',
+      reward: 0,
+      isXp: false,
+      completed: habit.completed,
+    );
   }
 
   Widget _vDivider() => Container(
