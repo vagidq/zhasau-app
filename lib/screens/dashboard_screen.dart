@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../data/mock_data.dart';
 import '../models/habit_model.dart';
@@ -440,8 +441,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       _quickAddController.clear();
       MainShell.of(context).showToast('Задача добавлена!');
-    } catch (_) {
+    } on FirebaseException catch (e) {
+      MainShell.of(context)
+          .showToast('Ошибка сохранения: ${e.code}', isError: true);
+      debugPrint('Firestore add habit failed: ${e.code} ${e.message}');
+    } catch (e) {
       MainShell.of(context).showToast('Ошибка сохранения', isError: true);
+      debugPrint('Firestore add habit failed: $e');
     }
   }
 
@@ -454,9 +460,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       MainShell.of(context).showToast(
         habit.completed ? 'Отмечено как невыполнено' : 'Задача выполнена!',
       );
-    } catch (_) {
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      MainShell.of(context)
+          .showToast('Ошибка обновления: ${e.code}', isError: true);
+      debugPrint('Firestore update habit failed: ${e.code} ${e.message}');
+    } catch (e) {
       if (!mounted) return;
       MainShell.of(context).showToast('Ошибка обновления', isError: true);
+      debugPrint('Firestore update habit failed: $e');
     }
   }
 
@@ -471,9 +483,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       if (!mounted) return;
       MainShell.of(context).showToast('Test Habit сохранен');
-    } catch (_) {
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      MainShell.of(context)
+          .showToast('Ошибка Firestore: ${e.code}', isError: true);
+      debugPrint('Firestore test habit failed: ${e.code} ${e.message}');
+    } catch (e) {
       if (!mounted) return;
       MainShell.of(context).showToast('Ошибка Firestore', isError: true);
+      debugPrint('Firestore test habit failed: $e');
     }
   }
 
