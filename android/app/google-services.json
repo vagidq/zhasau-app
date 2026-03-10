@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "517842048800",
+    "project_id": "goal-planner-c7cbf",
+    "storage_bucket": "goal-planner-c7cbf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:517842048800:android:abcde2c6fd7fc49e972945",
+        "android_client_info": {
+          "package_name": "com.example.zhasau_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB2zYD7dZ6GZlaUoTwSca0Bdhhhjp8HO_Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
