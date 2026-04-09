@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import '../models/app_store.dart';
 import '../data/mock_data.dart';
 import 'main_shell.dart';
 
@@ -97,7 +98,7 @@ class _ShopScreenState extends State<ShopScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                '${MockData.user.coins}',
+                                '${AppStore.instance.userProfile.coins}',
                                 style: const TextStyle(
                                   fontSize: 48,
                                   fontWeight: FontWeight.w800,

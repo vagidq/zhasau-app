@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import 'main_shell.dart';
+import '../models/app_store.dart';
+import '../models/goal_model.dart';
+import '../models/task_model.dart';
 
 class CreateGoalScreen extends StatefulWidget {
   const CreateGoalScreen({super.key});
@@ -11,7 +13,15 @@ class CreateGoalScreen extends StatefulWidget {
 
 class _CreateGoalScreenState extends State<CreateGoalScreen> {
   int _selectedCategory = 0;
-  final int _selectedColor = 0;
+
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+
+  final DateTime _startDate = DateTime.now();
+  DateTime? _deadline;
+
+  // Inline task list
+  final List<TextEditingController> _taskControllers = [];
 
   final _categories = ['Здоровье', 'Образование', 'Карьера', 'Хобби'];
   final _categoryIcons = [
@@ -34,21 +44,129 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
   ];
 
   @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    for (final c in _taskControllers) c.dispose();
+    super.dispose();
+  }
+
+  String _fmt(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+
+  Future<void> _pickDeadline() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _deadline ?? DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2030),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: ColorScheme.light(
+            primary: AppColors.primary,
+            onPrimary: Colors.white,
+            surface: AppColors.bgWhite,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _deadline = picked);
+  }
+
+  void _addTaskField() {
+    setState(() => _taskControllers.add(TextEditingController()));
+  }
+
+  void _removeTaskField(int index) {
+    _taskControllers[index].dispose();
+    setState(() => _taskControllers.removeAt(index));
+  }
+
+  void _showSnack(String text, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(text),
+      backgroundColor: isError ? Colors.red[700] : AppColors.success,
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
+  Future<void> _createGoal() async {
+    if (_titleController.text.trim().isEmpty) {
+      _showSnack('Введите название цели', isError: true);
+      return;
+    }
+
+    const colorMap = {
+      0: GoalColor.warning,   // Здоровье
+      1: GoalColor.blue,      // Образование
+      2: GoalColor.success,   // Карьера
+      3: GoalColor.warning,   // Хобби
+    };
+
+    final goalId = DateTime.now().millisecondsSinceEpoch.toString();
+    final taskTitles = _taskControllers
+        .map((c) => c.text.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+
+    final newGoal = GoalModel(
+      id: goalId,
+      title: _titleController.text.trim(),
+      subtitle: _descriptionController.text.trim(),
+      badge: '0/${taskTitles.length}',
+      iconName: _categories[_selectedCategory].toLowerCase(),
+      color: colorMap[_selectedCategory]!,
+      progress: 0,
+      tasksLeft: taskTitles.length,
+      deadline: _deadline,
+      startDate: _startDate,
+    );
+
+    try {
+      await AppStore.instance.addGoal(newGoal);
+
+      // Create linked tasks via AppStore (same authenticated service)
+      for (int i = 0; i < taskTitles.length; i++) {
+        final task = TaskModel(
+          id: '${goalId}_task_$i',
+          title: taskTitles[i],
+          subtitle: _categories[_selectedCategory],
+          goalId: goalId,
+          reward: 10,
+          isXp: true,
+        );
+        await AppStore.instance.addTask(task);
+      }
+
+      if (!mounted) return;
+      _showSnack('Цель успешно создана!');
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (mounted) Navigator.of(context).pop();
+    } catch (e, st) {
+      debugPrint('CreateGoal error: $e\n$st');
+      _showSnack('Не удалось создать цель. Проверьте соединение.', isError: true);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgMain,
       body: SafeArea(
         child: Column(
           children: [
-            // Header
+            // ── Header ──────────────────────────────────────────────────
             Container(
               height: 60,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 color: AppColors.bgMain,
-                border: Border(
-                  bottom: BorderSide(color: AppColors.borderDark),
-                ),
+                border: Border(bottom: BorderSide(color: AppColors.borderDark)),
               ),
               child: Row(
                 children: [
@@ -60,10 +178,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                     child: Center(
                       child: Text(
                         'Новая цель',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
@@ -72,14 +187,14 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
               ),
             ),
 
-            // Form
+            // ── Form ────────────────────────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Category picker
+                    // Category
                     _label('Категория'),
                     GridView.count(
                       crossAxisCount: 2,
@@ -97,9 +212,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 14, vertical: 10),
                             decoration: BoxDecoration(
-                              color: selected
-                                  ? _categoryBgs[i]
-                                  : AppColors.bgWhite,
+                              color: selected ? _categoryBgs[i] : AppColors.bgWhite,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: selected
@@ -135,14 +248,120 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                       }),
                     ),
 
+                    // Title
                     _label('Название цели'),
-                    _inputField('Напр. Пробежать марафон'),
+                    _inputField(_titleController, 'Напр. Пробежать марафон'),
 
+                    // Description
                     _label('Описание'),
-                    _textAreaField('Опишите вашу цель подробнее...'),
+                    _textAreaField(
+                        _descriptionController, 'Опишите вашу цель подробнее...'),
 
-                    _label('Дедлайн'),
-                    _iconInputField(Icons.calendar_today_rounded, '31.12.2024'),
+                    // Dates row
+                    _label('Даты'),
+                    Row(
+                      children: [
+                        // Start date — readonly
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Дата начала',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: AppColors.bgWhite,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: AppColors.borderDark),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.calendar_today_rounded,
+                                        color: AppColors.textMuted, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _fmt(_startDate),
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textMuted,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Deadline — tappable
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Дедлайн',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              GestureDetector(
+                                onTap: _pickDeadline,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 14),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.bgWhite,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _deadline != null
+                                          ? AppColors.primary
+                                          : AppColors.borderDark,
+                                      width: _deadline != null ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.event_rounded,
+                                          color: _deadline != null
+                                              ? AppColors.primary
+                                              : AppColors.textMuted,
+                                          size: 18),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _deadline != null
+                                            ? _fmt(_deadline!)
+                                            : 'Выбрать',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: _deadline != null
+                                              ? AppColors.textDark
+                                              : AppColors.textMuted,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
 
                     const SizedBox(height: 8),
 
@@ -153,16 +372,14 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                         gradient: LinearGradient(
                           colors: [
                             _categoryBgs[_selectedCategory],
-                            _categoryBgs[_selectedCategory]
-                                .withOpacity(0.6),
+                            _categoryBgs[_selectedCategory].withAlpha(153),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: _categoryColors[_selectedCategory]
-                              .withOpacity(0.3),
+                          color: _categoryColors[_selectedCategory].withAlpha(76),
                         ),
                       ),
                       child: Row(
@@ -171,8 +388,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                             width: 48,
                             height: 48,
                             decoration: BoxDecoration(
-                              color: _categoryColors[_selectedCategory]
-                                  .withOpacity(0.2),
+                              color: _categoryColors[_selectedCategory].withAlpha(51),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
@@ -195,7 +411,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 4),
-                                Text('За каждую задачу цели вы получаете XP и монеты',
+                                Text(
+                                  'За каждую задачу цели вы получаете XP и монеты',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: AppColors.textMuted,
@@ -208,32 +425,75 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                       ),
                     ),
 
-                    _label('Связанные задачи'),
+                    // ── Linked tasks ────────────────────────────────────
+                    _label('Задачи к цели'),
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: AppColors.bgWhite,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: AppColors.borderDark),
-                        // dashed border effect via decoration
                       ),
-                      child: Row(
+                      child: Column(
                         children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryLight,
-                              shape: BoxShape.circle,
+                          // Existing task fields
+                          for (int i = 0; i < _taskControllers.length; i++)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.drag_indicator_rounded,
+                                      color: AppColors.textLight, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _taskControllers[i],
+                                      decoration: InputDecoration(
+                                        hintText: 'Название задачи...',
+                                        hintStyle: TextStyle(
+                                            color: AppColors.textLight,
+                                            fontSize: 14),
+                                        border: InputBorder.none,
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                      style: const TextStyle(fontSize: 15),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () => _removeTaskField(i),
+                                    child: Icon(Icons.close_rounded,
+                                        color: AppColors.textLight, size: 20),
+                                  ),
+                                ],
+                              ),
                             ),
-                            child: Icon(Icons.add_rounded,
-                                color: AppColors.primary, size: 22),
-                          ),
-                          const SizedBox(width: 12),
-                          Text('Добавить задачи к цели',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 15,
+
+                          // Add button
+                          GestureDetector(
+                            onTap: _addTaskField,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primaryLight,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(Icons.add_rounded,
+                                      color: AppColors.primary, size: 20),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Добавить задачу к цели',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -242,18 +502,11 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
 
                     const SizedBox(height: 28),
 
+                    // Create button
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
-                          MainShell.of(context)
-                              .showToast('Цель успешно создана!');
-                          Future.delayed(
-                              const Duration(milliseconds: 600),
-                              () {
-                            if (mounted) Navigator.of(context).pop();
-                          });
-                        },
+                        onPressed: _createGoal,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(vertical: 18),
@@ -262,7 +515,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                           ),
                           elevation: 0,
                         ),
-                        child: const Text('Создать цель',
+                        child: const Text(
+                          'Создать цель',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
@@ -294,7 +548,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
         ),
       );
 
-  Widget _inputField(String hint) => TextField(
+  Widget _inputField(TextEditingController ctrl, String hint) => TextField(
+        controller: ctrl,
         decoration: InputDecoration(
           hintText: hint,
           filled: true,
@@ -315,7 +570,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
         ),
       );
 
-  Widget _textAreaField(String hint) => TextField(
+  Widget _textAreaField(TextEditingController ctrl, String hint) => TextField(
+        controller: ctrl,
         maxLines: 3,
         decoration: InputDecoration(
           hintText: hint,
@@ -334,28 +590,6 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
             borderSide: BorderSide(color: AppColors.primary, width: 1.5),
           ),
           contentPadding: const EdgeInsets.all(16),
-        ),
-      );
-
-  Widget _iconInputField(IconData icon, String value) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-        decoration: BoxDecoration(
-          color: AppColors.bgWhite,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.borderDark),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: AppColors.primary, size: 20),
-            const SizedBox(width: 10),
-            Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 15,
-              ),
-            ),
-          ],
         ),
       );
 }

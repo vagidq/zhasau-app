@@ -1,16 +1,44 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
+import '../models/app_store.dart';
 import 'settings_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
   @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    AppStore.instance.addListener(_onStoreChanged);
+  }
+
+  @override
+  void dispose() {
+    AppStore.instance.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  void _onStoreChanged() {
+    setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = MockData.user;
-    final chartHeights = [0.3, 0.6, 0.4, 0.8, 0.5, 0.9, 0.2];
+    final user = AppStore.instance.userProfile;
+    final completedTasksCount = user.completedTasks;
     final chartLabels = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
+    final todayIndex = DateTime.now().weekday - 1; // Mon=0 .. Sun=6
+    final activity = user.weeklyActivity;
+    final maxActivity = activity.reduce((a, b) => a > b ? a : b);
+    final chartHeights = List.generate(7, (i) {
+      if (maxActivity == 0) return 0.0;
+      return activity[i] / maxActivity;
+    });
     final achievements = [
       _Achievement(
           icon: Icons.wb_sunny_rounded,
@@ -170,7 +198,7 @@ class ProfileScreen extends StatelessWidget {
                     _statCard(
                       icon: Icons.check_circle_outline_rounded,
                       label: 'Выполнено',
-                      value: '145',
+                      value: '$completedTasksCount',
                       sub: 'всего задач',
                     ),
                     const SizedBox(height: 16),
@@ -184,7 +212,7 @@ class ProfileScreen extends StatelessWidget {
                     _statCard(
                       icon: Icons.toll_rounded,
                       label: 'Монеты',
-                      value: '2400',
+                      value: '${user.coins}',
                       sub: 'баланс кошелька',
                     ),
 
@@ -213,13 +241,13 @@ class ProfileScreen extends StatelessWidget {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: List.generate(7, (i) {
-                                final isCurrent = i == 5;
+                                final isCurrent = i == todayIndex;
                                 return Expanded(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 3),
                                     child: GestureDetector(
-                                      onTap: () => _showDayInfo(context, chartLabels[i], chartHeights[i]),
+                                      onTap: () => _showDayInfo(context, chartLabels[i], activity[i]),
                                       child: Container(
                                         color: Colors.transparent, // чтобы вся область столбца ловила клик
                                         child: Column(
@@ -473,11 +501,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  void _showDayInfo(BuildContext context, String dayLabel, double heightFactor) {
-    // Генерируем фейковые данные на основе высоты столбца
-    final tasksDone = (heightFactor * 12).round();
-    final xpEarned = tasksDone * 25;
-    final coinsEarned = tasksDone * 10;
+  void _showDayInfo(BuildContext context, String dayLabel, int tasksDone) {
+    final xpEarned = tasksDone * 10;
+    final coinsEarned = tasksDone * 5;
 
     showModalBottomSheet(
       context: context,

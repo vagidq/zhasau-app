@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
 import '../widgets/goal_card_vertical.dart';
 import 'goal_detail_screen.dart';
 import 'create_goal_screen.dart';
+import '../models/app_store.dart';
 
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key});
@@ -14,7 +14,23 @@ class GoalsScreen extends StatefulWidget {
 
 class _GoalsScreenState extends State<GoalsScreen> {
   int _activeFilter = 0;
-  final _filters = ['Все', 'Здоровье', 'Карьера', 'Хобби'];
+  final _filters = ['Все', 'Здоровье', 'Образование', 'Карьера', 'Хобби'];
+
+  @override
+  void initState() {
+    super.initState();
+    AppStore.instance.addListener(_onStoreChanged);
+  }
+
+  @override
+  void dispose() {
+    AppStore.instance.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  void _onStoreChanged() {
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -136,12 +152,64 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             height: 1, color: AppColors.borderDark),
                         const SizedBox(height: 20),
                         // Goal cards
-                        ...MockData.goals.map(
+                        ...AppStore.instance.goals.where((g) {
+                          if (_activeFilter == 0) return true;
+                          return g.subtitle == _filters[_activeFilter];
+                        }).map(
                           (g) => Padding(
                             padding: const EdgeInsets.only(bottom: 16),
-                            child: GoalCardVertical(
-                              goal: g,
-                              onTap: () => _openGoal(g),
+                            child: Dismissible(
+                              key: Key(g.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 24),
+                                decoration: BoxDecoration(
+                                  color: AppColors.red,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.white,
+                                  size: 26,
+                                ),
+                              ),
+                              confirmDismiss: (_) async {
+                                return await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(20)),
+                                    title: const Text('Удалить цель?'),
+                                    content: Text(
+                                        'Цель «${g.title}» и все её задачи будут удалены.'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(ctx).pop(false),
+                                        child: Text('Отмена',
+                                            style: TextStyle(
+                                                color: AppColors.textMuted)),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(ctx).pop(true),
+                                        child: Text('Удалить',
+                                            style: TextStyle(
+                                                color: AppColors.red,
+                                                fontWeight: FontWeight.w700)),
+                                      ),
+                                    ],
+                                  ),
+                                ) ?? false;
+                              },
+                              onDismissed: (_) {
+                                AppStore.instance.deleteGoal(g.id);
+                              },
+                              child: GoalCardVertical(
+                                goal: g,
+                                onTap: () => _openGoal(g),
+                              ),
                             ),
                           ),
                         ),
@@ -189,7 +257,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     Navigator.of(context).push(_slideRoute(GoalDetailScreen(goalId: goal.id)));
   }
 }
-
+final store = AppStore.instance;
 Route _slideRoute(Widget page) => PageRouteBuilder(
       pageBuilder: (_, __, ___) => page,
       transitionDuration: const Duration(milliseconds: 300),

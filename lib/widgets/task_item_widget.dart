@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
+import '../models/task_model.dart';
 
-class TaskItemWidget extends StatelessWidget {
+class TaskItemWidget extends StatefulWidget {
   final TaskModel task;
   final VoidCallback onToggle;
 
@@ -13,9 +14,27 @@ class TaskItemWidget extends StatelessWidget {
   });
 
   @override
+  State<TaskItemWidget> createState() => _TaskItemWidgetState();
+}
+
+class _TaskItemWidgetState extends State<TaskItemWidget> {
+  bool _tapped = false;
+
+  void _handleTap() {
+    if (_tapped) return;
+    _tapped = true;
+    HapticFeedback.lightImpact();
+    widget.onToggle();
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) _tapped = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final task = widget.task;
     return GestureDetector(
-      onTap: onToggle,
+      onTap: _handleTap,
       child: AnimatedOpacity(
         opacity: task.completed ? 0.65 : 1,
         duration: const Duration(milliseconds: 200),

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
+import '../models/app_store.dart';
+import '../models/task_model.dart';
 import '../widgets/task_item_widget.dart';
-import 'main_shell.dart';
+import 'dart:math';
 
 class GoalDetailScreen extends StatefulWidget {
   final String goalId;
@@ -14,12 +15,43 @@ class GoalDetailScreen extends StatefulWidget {
 
 class _GoalDetailScreenState extends State<GoalDetailScreen> {
   @override
+  void initState() {
+    super.initState();
+    AppStore.instance.addListener(_onStoreChanged);
+  }
+
+  @override
+  void dispose() {
+    AppStore.instance.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  void _onStoreChanged() {
+    setState(() {});
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.primary,
+      ));
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final goal =
-        MockData.goals.firstWhere((g) => g.id == widget.goalId);
-    final goalTasks =
-        MockData.tasks.where((t) => t.goalId == widget.goalId).toList();
-    final progressVal = goal.progress / 100.0;
+    final store = AppStore.instance;
+    final goalIndex = store.goals.indexWhere((g) => g.id == widget.goalId);
+    if (goalIndex == -1) {
+      return const Scaffold(body: Center(child: Text('Цель не найдена')));
+    }
+    final goal = store.goals[goalIndex];
+    final goalTasks = store.getTasksForGoal(widget.goalId);
+    final progress = store.goalProgressPercent(widget.goalId);
 
     return Scaffold(
       backgroundColor: AppColors.bgMain,
@@ -49,12 +81,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           ),
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () =>
-                            MainShell.of(context).showToast('Опции цели'),
-                        child: Icon(Icons.more_horiz_rounded,
-                            size: 26, color: AppColors.textDark),
-                      ),
+                      const SizedBox(width: 40),
                     ],
                   ),
                 ),
@@ -92,7 +119,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                                       borderRadius:
                                           BorderRadius.circular(20),
                                     ),
-                                    child: Text('Почти у цели!',
+                                    child: Text(
+                                      progress == 100
+                                          ? 'Выполнено!'
+                                          : progress >= 50
+                                              ? 'Почти у цели!'
+                                              : 'В процессе',
                                       style: TextStyle(
                                         color: AppColors.primaryDark,
                                         fontWeight: FontWeight.w600,
@@ -106,7 +138,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
-                                  '${goal.progress}%',
+                                  '$progress%',
                                   style: TextStyle(
                                     fontSize: 42,
                                     fontWeight: FontWeight.w800,
@@ -118,7 +150,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(4),
                                 child: LinearProgressIndicator(
-                                  value: progressVal,
+                                  value: progress / 100.0,
                                   minHeight: 8,
                                   backgroundColor: AppColors.primaryLight,
                                   valueColor:
@@ -158,7 +190,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               ),
                             ),
                             Text(
-                              '${goalTasks.length} АКТИВНЫХ',
+                              '${goalTasks.where((t) => !t.completed).length} АКТИВНЫХ',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
@@ -169,15 +201,89 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
+
+                        if (goalTasks.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: AppColors.bgWhite,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Center(
+                              child: Column(
+                                children: [
+                                  Icon(Icons.add_task_rounded,
+                                      size: 36, color: AppColors.textLight),
+                                  const SizedBox(height: 8),
+                                  Text('Нет задач. Нажмите + чтобы добавить',
+                                    style: TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 14,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
                         ...goalTasks.map(
                           (t) => Padding(
                             padding: const EdgeInsets.only(bottom: 12),
-                            child: TaskItemWidget(
-                              task: t,
-                              onToggle: () {
-                                _toggleTask(t);
-                                setState(() {});
+                            child: Dismissible(
+                              key: Key(t.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 24),
+                                decoration: BoxDecoration(
+                                  color: AppColors.red,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.white,
+                                  size: 26,
+                                ),
+                              ),
+                              confirmDismiss: (_) async {
+                                return await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(20)),
+                                    title: const Text('Удалить задачу?'),
+                                    content: Text(
+                                        'Задача «${t.title}» будет удалена.'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(ctx).pop(false),
+                                        child: Text('Отмена',
+                                            style: TextStyle(
+                                                color: AppColors.textMuted)),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(ctx).pop(true),
+                                        child: Text('Удалить',
+                                            style: TextStyle(
+                                                color: AppColors.red,
+                                                fontWeight: FontWeight.w700)),
+                                      ),
+                                    ],
+                                  ),
+                                ) ??
+                                    false;
                               },
+                              onDismissed: (_) {
+                                AppStore.instance.deleteTask(t.id);
+                              },
+                              child: TaskItemWidget(
+                                task: t,
+                                onToggle: () => _toggleTask(t, goalTasks),
+                              ),
                             ),
                           ),
                         ),
@@ -193,8 +299,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               right: 20,
               bottom: 20,
               child: GestureDetector(
-                onTap: () =>
-                    MainShell.of(context).showToast('Создать задачу'),
+                onTap: () => _showAddTaskSheet(context),
                 child: Container(
                   width: 60,
                   height: 60,
@@ -220,24 +325,123 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     );
   }
 
-  void _toggleTask(task) {
-    task.completed = !task.completed;
-    if (task.completed) {
-      if (task.isXp) {
-        MockData.user.xp = (MockData.user.xp + task.reward).toInt();
-        MainShell.of(context).showToast('+${task.reward} XP!');
-      } else if (task.reward > 0) {
-        MockData.user.coins = (MockData.user.coins + task.reward).toInt();
-        MainShell.of(context).showToast('+${task.reward} монет!');
-      } else {
-        MainShell.of(context).showToast('Задача выпонена!');
-      }
-    } else {
-      if (task.isXp) {
-        MockData.user.xp = (MockData.user.xp - task.reward).toInt();
-      } else {
-        MockData.user.coins = (MockData.user.coins - task.reward).toInt();
-      }
+  void _toggleTask(TaskModel task, List<TaskModel> goalTasks) {
+    final xpPerTask = goalTasks.isEmpty
+        ? 500
+        : (500 / goalTasks.length).round();
+
+    final updatedTask = task.copyWith(
+      completed: !task.completed,
+      reward: xpPerTask,
+      isXp: true,
+    );
+
+    AppStore.instance.updateTask(updatedTask);
+
+    if (!task.completed) {
+      // was uncompleted, now completing
+      _showSnack('+$xpPerTask XP за задачу!');
     }
+  }
+
+  void _showAddTaskSheet(BuildContext context) {
+    final titleCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+          decoration: BoxDecoration(
+            color: AppColors.bgWhite,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderDark,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text('Новая задача',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
+                )),
+              const SizedBox(height: 16),
+              TextField(
+                controller: titleCtrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  hintText: 'Название задачи',
+                  hintStyle: TextStyle(color: AppColors.textLight),
+                  filled: true,
+                  fillColor: AppColors.bgMain,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                  onPressed: () {
+                    final title = titleCtrl.text.trim();
+                    if (title.isEmpty) return;
+
+                    final currentTasks =
+                        AppStore.instance.getTasksForGoal(widget.goalId);
+                    final newTotal = currentTasks.length + 1;
+                    final xpPerTask = (500 / newTotal).round();
+
+                    final newTask = TaskModel(
+                      id: 'task_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}',
+                      title: title,
+                      subtitle: 'Цель: ${AppStore.instance.goals.firstWhere((g) => g.id == widget.goalId).title}',
+                      goalId: widget.goalId,
+                      reward: xpPerTask,
+                      isXp: true,
+                      completed: false,
+                    );
+
+                    AppStore.instance.addTask(newTask);
+                    Navigator.of(ctx).pop();
+                  },
+                  child: const Text('Добавить задачу',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
+import '../models/app_store.dart';
 import 'main_shell.dart';
+import '../services/auth_service.dart';
+import '../services/local_auth_service.dart';
+import 'splash_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,6 +14,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final AuthService _authService = AuthService();
+  final LocalAuthService _localAuthService = LocalAuthService();
   // Локальные состояния для свитчеров
   bool _notificationsEnabled = true;
   bool _soundEnabled = true;
@@ -83,7 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.person_rounded,
                         color: AppColors.blue,
                         title: 'Профиль',
-                        subtitle: MockData.user.name,
+                        subtitle: AppStore.instance.userProfile.name,
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
                         onTap: () => MainShell.of(context).showToast('Настройки профиля'),
                       ),
@@ -159,8 +164,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton(
-                        onPressed: () {
-                          MainShell.of(context).showToast('Вы вышли из аккаунта');
+                        onPressed: () async {
+                          await _authService.signOut();
+                          await _localAuthService.signOut();
+                          if (!mounted) return;
+                          Navigator.of(context).pushAndRemoveUntil(
+                            PageRouteBuilder(
+                              pageBuilder: (_, __, ___) => const SplashScreen(),
+                              transitionsBuilder: (_, anim, __, child) =>
+                                  FadeTransition(opacity: anim, child: child),
+                            ),
+                            (route) => false,
+                          );
                         },
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),

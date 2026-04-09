@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
 import 'dashboard_screen.dart';
 import 'goals_screen.dart';
 import 'create_task_screen.dart';
 import 'shop_screen.dart';
 import 'profile_screen.dart';
+import '../models/app_store.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -25,6 +28,42 @@ class MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     AppColors.isDarkMode.addListener(_onThemeChange);
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    // Если Firebase Auth отсутствует (локальный fallback при регистрации/входе)
+    // — пробуем восстановить сессию через сохранённые credentials или анонимно.
+    if (FirebaseAuth.instance.currentUser == null) {
+      await _restoreFirebaseSession();
+    }
+    try {
+      await AppStore.instance.loadUserData();
+    } catch (e) {
+      AppStore.instance.initializeEmptyProfile();
+    }
+  }
+
+  /// Восстанавливает Firebase-сессию:
+  /// 1. Email + password из SharedPreferences
+  /// 2. Анонимный вход как последний резерв
+  static Future<void> _restoreFirebaseSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('local_auth_email');
+      final password = prefs.getString('local_auth_password');
+      if (email != null && password != null) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+        if (FirebaseAuth.instance.currentUser != null) return;
+      }
+    } catch (_) {}
+    // Fallback: анонимный вход даёт валидный auth-токен
+    try {
+      await FirebaseAuth.instance.signInAnonymously();
+    } catch (_) {}
   }
 
   void _onThemeChange() => setState(() {});

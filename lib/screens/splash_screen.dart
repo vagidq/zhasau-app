@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
+import 'main_shell.dart';
+import '../models/app_store.dart';
+import '../services/auth_service.dart';
+import '../services/local_auth_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -12,6 +16,8 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
+  final AuthService _authService = AuthService();
+  final LocalAuthService _localAuthService = LocalAuthService();
   late AnimationController _fadeController;
   late AnimationController _scaleController;
   late AnimationController _buttonsController;
@@ -43,9 +49,43 @@ class _SplashScreenState extends State<SplashScreen>
 
     _fadeController.forward();
     _scaleController.forward();
+    _redirectIfAuthenticated();
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) _buttonsController.forward();
     });
+  }
+
+  void _redirectIfAuthenticated() async {
+    // Wait for Firebase Auth to restore session (with timeout for web)
+    final firebaseUser = await _authService.authStateChanges.first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    final firebaseLoggedIn = firebaseUser != null;
+    final localLoggedIn = await _localAuthService.isLoggedIn();
+
+    if (!firebaseLoggedIn && !localLoggedIn) return;
+
+    if (firebaseLoggedIn) {
+      try {
+        await AppStore.instance.loadUserData();
+      } catch (_) {}
+    } else {
+      AppStore.instance.initializeEmptyProfile();
+      final localName = await _localAuthService.getName();
+      if (localName != null && localName.isNotEmpty) {
+        AppStore.instance.userProfile.name = localName;
+        AppStore.instance.refreshUI();
+      }
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const MainShell(),
+        transitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ),
+    );
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
+import '../models/goal_model.dart';
+import '../models/app_store.dart';
 
 class GoalCardVertical extends StatelessWidget {
   final GoalModel goal;
@@ -14,6 +15,9 @@ class GoalCardVertical extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final store = AppStore.instance;
+    final progress = store.goalProgressPercent(goal.id);
+    final tasksLeft = store.tasksLeft(goal.id);
     final colors = _goalColors(goal.color);
     final categoryLabel = _categoryLabel(goal.color);
 
@@ -60,7 +64,7 @@ class GoalCardVertical extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        goal.subtitle,
+                        goal.title,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -77,7 +81,9 @@ class GoalCardVertical extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    goal.badge,
+                    goal.deadline != null
+                        ? 'до ${goal.deadline!.day}.${goal.deadline!.month}'
+                        : 'Без срока',
                     style: TextStyle(
                       color: AppColors.primaryDark,
                       fontWeight: FontWeight.w600,
@@ -100,7 +106,7 @@ class GoalCardVertical extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${goal.progress}%',
+                  '$progress%',
                   style: TextStyle(
                     color: AppColors.primaryDark,
                     fontWeight: FontWeight.w700,
@@ -113,7 +119,7 @@ class GoalCardVertical extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: goal.progress / 100.0,
+                value: progress / 100.0,
                 minHeight: 8,
                 backgroundColor: AppColors.primaryLight,
                 valueColor:
@@ -132,7 +138,7 @@ class GoalCardVertical extends StatelessWidget {
                         size: 16, color: AppColors.textMuted),
                     const SizedBox(width: 4),
                     Text(
-                      '${goal.tasksLeft} задачи осталось',
+                      '$tasksLeft задач осталось',
                       style: TextStyle(
                         fontSize: 13,
                         color: AppColors.textMuted,
@@ -149,7 +155,8 @@ class GoalCardVertical extends StatelessWidget {
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text('Подробнее',
+                    child: const Text(
+                      'Открыть',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -171,26 +178,30 @@ class _GoalColors {
   final Color bg;
   final Color fg;
   final IconData icon;
-  _GoalColors({required this.bg, required this.fg, required this.icon});
+
+  const _GoalColors({required this.bg, required this.fg, required this.icon});
 }
 
 _GoalColors _goalColors(GoalColor c) {
   switch (c) {
     case GoalColor.warning:
-      return _GoalColors(
-          bg: AppColors.warningLight,
-          fg: AppColors.warning,
-          icon: Icons.fitness_center_rounded);
+      return const _GoalColors(
+        bg: Color(0xFFFFF3CD),
+        fg: Color(0xFF856404),
+        icon: Icons.fitness_center_rounded,
+      );
     case GoalColor.blue:
-      return _GoalColors(
-          bg: AppColors.blueLight,
-          fg: AppColors.blue,
-          icon: Icons.menu_book_rounded);
+      return const _GoalColors(
+        bg: Color(0xFFD1ECF1),
+        fg: Color(0xFF0C5460),
+        icon: Icons.book_rounded,
+      );
     case GoalColor.success:
-      return _GoalColors(
-          bg: AppColors.successLight,
-          fg: AppColors.success,
-          icon: Icons.work_rounded);
+      return const _GoalColors(
+        bg: Color(0xFFD4EDDA),
+        fg: Color(0xFF155724),
+        icon: Icons.work_rounded,
+      );
   }
 }
 
@@ -199,7 +210,7 @@ String _categoryLabel(GoalColor c) {
     case GoalColor.warning:
       return 'ЗДОРОВЬЕ';
     case GoalColor.blue:
-      return 'ОБРАЗОВАНИЕ';
+      return 'УЧЁБА';
     case GoalColor.success:
       return 'КАРЬЕРА';
   }

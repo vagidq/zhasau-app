@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
+import '../models/goal_model.dart';
+import '../models/app_store.dart';
 
 class GoalCardHorizontal extends StatelessWidget {
   final GoalModel goal;
@@ -15,6 +16,7 @@ class GoalCardHorizontal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _goalColors(goal.color);
+    final progress = AppStore.instance.goalProgressPercent(goal.id);
 
     return GestureDetector(
       onTap: onTap,
@@ -44,6 +46,8 @@ class GoalCardHorizontal extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               goal.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 16,
@@ -51,7 +55,7 @@ class GoalCardHorizontal extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '${goal.progress}% завершено',
+              '$progress% завершено',
               style: TextStyle(
                 fontSize: 12,
                 color: AppColors.textMuted,
@@ -61,7 +65,7 @@ class GoalCardHorizontal extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: goal.progress / 100.0,
+                value: progress / 100.0,
                 minHeight: 6,
                 backgroundColor: AppColors.borderDark,
                 valueColor: AlwaysStoppedAnimation(colors.fg),

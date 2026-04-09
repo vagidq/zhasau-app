@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
-import '../data/mock_data.dart';
 import 'main_shell.dart';
 import 'login_screen.dart';
+import '../models/app_store.dart';
+import '../services/auth_service.dart';
+import '../services/user_service.dart';
+import '../services/local_auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -13,6 +17,9 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen>
     with SingleTickerProviderStateMixin {
+  final AuthService _authService = AuthService();
+  final UserService _userService = UserService();
+  final LocalAuthService _localAuthService = LocalAuthService();
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -53,28 +60,56 @@ class _RegisterScreenState extends State<RegisterScreen>
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 1000));
-    if (!mounted) return;
 
-    // Обновляем имя пользователя в MockData
-    MockData.user = UserModel(
-      name: _nameCtrl.text.trim(),
-      level: 1,
-      xp: 0,
-      xpMax: 1000,
-      coins: 0,
-      streak: 0,
-    );
+    try {
+      final name = _nameCtrl.text.trim();
+      final email = _emailCtrl.text.trim().toLowerCase();
+      final password = _passCtrl.text.trim();
 
-    setState(() => _isLoading = false);
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const MainShell(),
-        transitionDuration: const Duration(milliseconds: 400),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ),
-    );
+      try {
+        await _authService.signUp(email, password);
+        await _authService.updateDisplayName(name);
+        await _userService.initializeUserProfile(name);
+        await AppStore.instance.loadUserData();
+      } catch (_) {
+        // Fallback for demo if Firebase auth/config is unavailable.
+        AppStore.instance.initializeEmptyProfile();
+        AppStore.instance.userProfile.name = name;
+        AppStore.instance.refreshUI();
+      }
+      // Always save credentials locally as fallback for future logins
+      await _localAuthService.signUp(
+        name: name,
+        email: email,
+        password: password,
+      );
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const MainShell(),
+          transitionDuration: const Duration(milliseconds: 400),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка регистрации: ${_mapAuthError(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _mapAuthError(Object error) {
+    final message = error.toString();
+    if (message.contains('email-already-in-use')) return 'Этот email уже зарегистрирован';
+    if (message.contains('weak-password')) return 'Слишком слабый пароль';
+    if (message.contains('invalid-email')) return 'Некорректный email';
+    return 'Не удалось создать аккаунт';
   }
 
   @override
@@ -212,11 +247,20 @@ class _RegisterScreenState extends State<RegisterScreen>
                                     if (v == null || v.isEmpty) {
                                       return 'Введите почту';
                                     }
-                                    if (!v.contains('@')) {
-                                      return 'Неверный формат почты';
+                                    final email = v.trim();
+                                    final emailRegex = RegExp(
+                                      r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$',
+                                    );
+                                    if (!emailRegex.hasMatch(email)) {
+                                      return 'Только латиница и корректный формат email';
                                     }
                                     return null;
                                   },
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[A-Za-z0-9@._%+\-]'),
+                                    ),
+                                  ],
                                 ),
 
                                 const SizedBox(height: 20),
@@ -247,8 +291,16 @@ class _RegisterScreenState extends State<RegisterScreen>
                                     if (v.length < 6) {
                                       return 'Минимум 6 символов';
                                     }
+                                    if (!RegExp(r'^[\x21-\x7E]+$').hasMatch(v)) {
+                                      return 'Пароль только на латинице/ASCII';
+                                    }
                                     return null;
                                   },
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[\x21-\x7E]'),
+                                    ),
+                                  ],
                                 ),
 
                                 const SizedBox(height: 20),
@@ -283,6 +335,11 @@ class _RegisterScreenState extends State<RegisterScreen>
                                     }
                                     return null;
                                   },
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[\x21-\x7E]'),
+                                    ),
+                                  ],
                                 ),
 
                                 const SizedBox(height: 12),
@@ -429,6 +486,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     TextInputType? keyboardType,
     TextCapitalization textCapitalization = TextCapitalization.none,
     String? Function(String?)? validator,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextFormField(
       controller: controller,
@@ -436,6 +494,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       keyboardType: keyboardType,
       textCapitalization: textCapitalization,
       validator: validator,
+      inputFormatters: inputFormatters,
       style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w500,

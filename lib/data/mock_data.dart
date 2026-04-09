@@ -93,7 +93,7 @@ class ShopItem {
 
 class MockData {
   static UserModel user = UserModel(
-    name: 'Александр',
+    name: 'Дамир',
     level: 12,
     xp: 750,
     xpMax: 1000,

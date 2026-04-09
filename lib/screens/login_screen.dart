@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import 'register_screen.dart';
 import 'main_shell.dart';
+import '../models/app_store.dart';
+import '../services/auth_service.dart';
+import '../services/local_auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,6 +16,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
+  final AuthService _authService = AuthService();
+  final LocalAuthService _localAuthService = LocalAuthService();
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
@@ -47,17 +53,79 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const MainShell(),
-        transitionDuration: const Duration(milliseconds: 400),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-      ),
-    );
+
+    try {
+      final email = _emailCtrl.text.trim().toLowerCase();
+      final password = _passCtrl.text.trim();
+      var loggedIn = false;
+
+      Object? firebaseError;
+      try {
+        await _authService.signIn(email, password);
+        await AppStore.instance.loadUserData();
+        // Keep local credentials in sync for offline fallback
+        await _localAuthService.signUp(
+          name: AppStore.instance.userProfile.name,
+          email: email,
+          password: password,
+        );
+        loggedIn = true;
+      } catch (e) {
+        firebaseError = e;
+        final msg = e.toString();
+        // For credential errors — don't fall back, show the real error
+        final isCredentialError = msg.contains('invalid-credential') ||
+            msg.contains('wrong-password') ||
+            msg.contains('user-not-found');
+        if (!isCredentialError) {
+          // Network/config issue — try local auth
+          loggedIn = await _localAuthService.signIn(
+            email: email,
+            password: password,
+          );
+          if (loggedIn) {
+            AppStore.instance.initializeEmptyProfile();
+            final localName = await _localAuthService.getName();
+            if (localName != null && localName.isNotEmpty) {
+              AppStore.instance.userProfile.name = localName;
+              AppStore.instance.refreshUI();
+            }
+          }
+        }
+      }
+
+      if (!loggedIn) {
+        throw firebaseError ?? Exception('invalid-credential');
+      }
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const MainShell(),
+          transitionDuration: const Duration(milliseconds: 400),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка входа: ${_mapAuthError(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _mapAuthError(Object error) {
+    final message = error.toString();
+    if (message.contains('user-not-found')) return 'Пользователь не найден';
+    if (message.contains('wrong-password')) return 'Неверный пароль';
+    if (message.contains('invalid-credential')) return 'Неверный email или пароль';
+    if (message.contains('invalid-email')) return 'Некорректный email';
+    if (message.contains('too-many-requests')) return 'Слишком много попыток, попробуйте позже';
+    return 'Не удалось войти';
   }
 
   @override
@@ -167,9 +235,19 @@ class _LoginScreenState extends State<LoginScreen>
                               if (v == null || v.isEmpty) {
                                 return 'Введите почту';
                               }
-                              if (!v.contains('@')) return 'Неверный формат';
+                              final email = v.trim();
+                              final emailRegex =
+                                  RegExp(r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$');
+                              if (!emailRegex.hasMatch(email)) {
+                                return 'Только латиница и корректный формат email';
+                              }
                               return null;
                             },
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'[A-Za-z0-9@._%+\-]'),
+                              ),
+                            ],
                           ),
 
                           const SizedBox(height: 20),
@@ -200,8 +278,16 @@ class _LoginScreenState extends State<LoginScreen>
                               if (v.length < 6) {
                                 return 'Минимум 6 символов';
                               }
+                              if (!RegExp(r'^[\x21-\x7E]+$').hasMatch(v)) {
+                                return 'Пароль только на латинице/ASCII';
+                              }
                               return null;
                             },
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'[\x21-\x7E]'),
+                              ),
+                            ],
                           ),
 
                           const SizedBox(height: 12),
@@ -359,12 +445,14 @@ class _LoginScreenState extends State<LoginScreen>
     Widget? suffixIcon,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextFormField(
       controller: controller,
       obscureText: obscure,
       keyboardType: keyboardType,
       validator: validator,
+      inputFormatters: inputFormatters,
       style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w500,
