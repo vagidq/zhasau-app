@@ -1,4 +1,4 @@
-enum TagType { high, medium, repeat }
+enum TagType { low, medium, high, repeat }
 
 class TaskTag {
   final String text;
@@ -12,9 +12,11 @@ class TaskModel {
   final String title;
   final String subtitle;
   final String? goalId;
-  final num reward;
-  final bool isXp;
+  final num reward;   // монеты
+  final int xpReward; // XP
+  final bool isXp;   // legacy: для задач из цели где нет монет — reward это XP
   final TaskTag? tag;
+  final int priority; // 0=Низкий, 1=Средний, 2=Высокий
   bool completed;
 
   TaskModel({
@@ -23,8 +25,10 @@ class TaskModel {
     required this.subtitle,
     this.goalId,
     required this.reward,
+    this.xpReward = 0,
     required this.isXp,
     this.tag,
+    this.priority = 1,
     this.completed = false,
   });
 
@@ -34,8 +38,10 @@ class TaskModel {
     String? subtitle,
     String? goalId,
     num? reward,
+    int? xpReward,
     bool? isXp,
     TaskTag? tag,
+    int? priority,
     bool? completed,
   }) {
     return TaskModel(
@@ -44,8 +50,10 @@ class TaskModel {
       subtitle: subtitle ?? this.subtitle,
       goalId: goalId ?? this.goalId,
       reward: reward ?? this.reward,
+      xpReward: xpReward ?? this.xpReward,
       isXp: isXp ?? this.isXp,
       tag: tag ?? this.tag,
+      priority: priority ?? this.priority,
       completed: completed ?? this.completed,
     );
   }

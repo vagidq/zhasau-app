@@ -10,6 +10,8 @@ class UserProfile {
   DateTime? lastTaskCompletedDate;
   // Tasks completed per weekday: index 0=Mon, 1=Tue, ..., 6=Sun
   List<int> weeklyActivity;
+  List<int> weeklyXp;
+  List<int> weeklyCoins;
 
   UserProfile({
     required this.id,
@@ -21,7 +23,11 @@ class UserProfile {
     this.streak = 0,
     this.lastTaskCompletedDate,
     List<int>? weeklyActivity,
-  }) : weeklyActivity = weeklyActivity ?? List.filled(7, 0);
+    List<int>? weeklyXp,
+    List<int>? weeklyCoins,
+  }) : weeklyActivity = weeklyActivity ?? List.filled(7, 0),
+       weeklyXp = weeklyXp ?? List.filled(7, 0),
+       weeklyCoins = weeklyCoins ?? List.filled(7, 0);
 
   // Calculate current level based on XP
   int calculateLevel(int totalXp) {
@@ -76,9 +82,11 @@ class UserProfile {
   }
 
   // Increment today's weekday slot (Mon=0 .. Sun=6)
-  void incrementWeeklyActivity() {
+  void incrementWeeklyActivity({int xp = 0, int coins = 0}) {
     final todayIndex = DateTime.now().weekday - 1;
     weeklyActivity[todayIndex] += 1;
+    weeklyXp[todayIndex] += xp;
+    weeklyCoins[todayIndex] += coins;
   }
 
   // Get XP needed for next level
@@ -96,6 +104,8 @@ class UserProfile {
     int? streak,
     DateTime? lastTaskCompletedDate,
     List<int>? weeklyActivity,
+    List<int>? weeklyXp,
+    List<int>? weeklyCoins,
   }) {
     return UserProfile(
       id: id,
@@ -107,6 +117,8 @@ class UserProfile {
       streak: streak ?? this.streak,
       lastTaskCompletedDate: lastTaskCompletedDate ?? this.lastTaskCompletedDate,
       weeklyActivity: weeklyActivity ?? List.of(this.weeklyActivity),
+      weeklyXp: weeklyXp ?? List.of(this.weeklyXp),
+      weeklyCoins: weeklyCoins ?? List.of(this.weeklyCoins),
     );
   }
 }

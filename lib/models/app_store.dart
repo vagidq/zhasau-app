@@ -45,6 +45,16 @@ class AppStore extends ChangeNotifier {
             ? List<int>.from(rawActivity.map((e) => (e as num?)?.toInt() ?? 0))
             : List<int>.filled(7, 0);
 
+        final rawXp = data['weeklyXp'];
+        final weeklyXp = rawXp is List
+            ? List<int>.from(rawXp.map((e) => (e as num?)?.toInt() ?? 0))
+            : List<int>.filled(7, 0);
+
+        final rawCoins = data['weeklyCoins'];
+        final weeklyCoins = rawCoins is List
+            ? List<int>.from(rawCoins.map((e) => (e as num?)?.toInt() ?? 0))
+            : List<int>.filled(7, 0);
+
         _userProfile = UserProfile(
           id: _userService.userId,
           name: (data['name'] as String?) ?? 'Пользователь',
@@ -57,6 +67,8 @@ class AppStore extends ChangeNotifier {
               ? DateTime.tryParse(data['lastTaskCompletedDate'] as String)
               : null,
           weeklyActivity: weeklyActivity,
+          weeklyXp: weeklyXp,
+          weeklyCoins: weeklyCoins,
         );
         _hasProfile = true;
         notifyListeners();
@@ -175,24 +187,45 @@ class AppStore extends ChangeNotifier {
 
     // Handle rewards when task is marked as completed
     if (!wasCompleted && isNowCompleted) {
-      // Task just completed - give rewards
-      if (updatedTask.isXp && updatedTask.reward > 0) {
-        _userProfile.addXp(updatedTask.reward.toInt());
-      } else if (!updatedTask.isXp && updatedTask.reward > 0) {
+      int gainedXp = 0;
+      int gainedCoins = 0;
+
+      // Coins reward
+      if (!updatedTask.isXp && updatedTask.reward > 0) {
+        gainedCoins += updatedTask.reward.toInt();
         _userProfile.addCoins(updatedTask.reward.toInt());
       }
+      // XP reward (legacy isXp tasks OR explicit xpReward)
+      if (updatedTask.isXp && updatedTask.reward > 0) {
+        gainedXp += updatedTask.reward.toInt();
+        _userProfile.addXp(updatedTask.reward.toInt());
+      }
+      if (updatedTask.xpReward > 0) {
+        gainedXp += updatedTask.xpReward;
+        _userProfile.addXp(updatedTask.xpReward);
+      }
+      _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
+      _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
+      notifyListeners();
       _persistUserProfile();
     } else if (wasCompleted && !isNowCompleted) {
-      // Task just uncompleted - remove rewards
-      if (updatedTask.isXp && updatedTask.reward > 0) {
-        _userProfile.xp = (_userProfile.xp - updatedTask.reward).toInt();
-        if (_userProfile.xp < 0) _userProfile.xp = 0;
-        _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
-      } else if (!updatedTask.isXp && updatedTask.reward > 0) {
+      // Remove rewards
+      if (!updatedTask.isXp && updatedTask.reward > 0) {
         _userProfile.coins = (_userProfile.coins - updatedTask.reward).toInt();
         if (_userProfile.coins < 0) _userProfile.coins = 0;
       }
+      if (updatedTask.isXp && updatedTask.reward > 0) {
+        _userProfile.xp = (_userProfile.xp - updatedTask.reward).toInt();
+        if (_userProfile.xp < 0) _userProfile.xp = 0;
+      }
+      if (updatedTask.xpReward > 0) {
+        _userProfile.xp = (_userProfile.xp - updatedTask.xpReward).toInt();
+        if (_userProfile.xp < 0) _userProfile.xp = 0;
+      }
+      _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
+      if (_userProfile.completedTasks > 0) _userProfile.completedTasks -= 1;
+      notifyListeners();
       _persistUserProfile();
     }
 
@@ -212,13 +245,23 @@ class AppStore extends ChangeNotifier {
   Future<void> completeAndRemoveTask(TaskModel task) async {
     // Guard: if already completed, just delete from list (idempotent-ish)
     if (!task.completed) {
+      int gainedXp = 0;
+      int gainedCoins = 0;
       if (task.isXp && task.reward > 0) {
+        gainedXp += task.reward.toInt();
         _userProfile.addXp(task.reward.toInt());
       } else if (!task.isXp && task.reward > 0) {
+        gainedCoins += task.reward.toInt();
         _userProfile.addCoins(task.reward.toInt());
+      }
+      if (task.xpReward > 0) {
+        gainedXp += task.xpReward;
+        _userProfile.addXp(task.xpReward);
       }
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
+      _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
+      notifyListeners(); // update UI (coins/XP) immediately
       _persistUserProfile();
     }
 
@@ -248,11 +291,14 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> completeHabitTask({int xpReward = 10}) async {
+  Future<void> completeHabitTask({int xpReward = 10, int coinReward = 0}) async {
     _userProfile.addXp(xpReward);
+    if (coinReward > 0) {
+      _userProfile.addCoins(coinReward);
+    }
     _userProfile.incrementCompletedTasks();
     _userProfile.updateStreak();
-    _userProfile.incrementWeeklyActivity();
+    _userProfile.incrementWeeklyActivity(xp: xpReward, coins: coinReward);
     await _persistUserProfile();
     notifyListeners();
   }
@@ -268,6 +314,8 @@ class AppStore extends ChangeNotifier {
         'streak': _userProfile.streak,
         'lastTaskCompletedDate': _userProfile.lastTaskCompletedDate?.toIso8601String(),
         'weeklyActivity': _userProfile.weeklyActivity,
+        'weeklyXp': _userProfile.weeklyXp,
+        'weeklyCoins': _userProfile.weeklyCoins,
       });
     } catch (e) {
       debugPrint('Error persisting user profile: $e');

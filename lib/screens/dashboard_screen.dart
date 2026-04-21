@@ -381,6 +381,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 !_dismissed.contains(h.id))
                             .toList();
 
+                        // All tasks from AppStore
+                        final activeStoreTasks = AppStore.instance.tasks
+                            .where((t) => !t.completed)
+                            .toList();
+                        final completedStoreTasks = AppStore.instance.tasks
+                            .where((t) => t.completed)
+                            .toList();
+
+                        final totalActive = activeHabits.length + activeStoreTasks.length;
+
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -401,7 +411,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     color: AppColors.primaryLight,
                                     borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: Text('${activeHabits.length} задачи',
+                                  child: Text('$totalActive задач',
                                     style: TextStyle(
                                       color: AppColors.primary,
                                       fontSize: 12,
@@ -412,6 +422,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ],
                             ),
                             const SizedBox(height: 16),
+
+                            // ── AppStore active standalone tasks ─────────
+                            for (final task in activeStoreTasks)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Dismissible(
+                                  key: Key('store_${task.id}'),
+                                  direction: DismissDirection.endToStart,
+                                  background: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 20),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.red,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Colors.white,
+                                        size: 24),
+                                  ),
+                                  onDismissed: (_) =>
+                                      AppStore.instance.deleteTask(task.id),
+                                  child: TaskItemWidget(
+                                    task: task,
+                                    onToggle: () => _completeStoreTask(task),
+                                  ),
+                                ),
+                              ),
 
                             // ── Active habits ────────────────────────────
                             if (snapshot.hasError)
@@ -431,7 +469,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               )
                             else if (activeHabits.isEmpty &&
                                 completedHabits.isEmpty &&
-                                expiredHabits.isEmpty)
+                                expiredHabits.isEmpty &&
+                                activeStoreTasks.isEmpty &&
+                                completedStoreTasks.isEmpty)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text(
@@ -470,7 +510,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
 
                               // ── Completed today section ──────────────
-                              if (completedHabits.isNotEmpty) ...[
+                              if (completedHabits.isNotEmpty || completedStoreTasks.isNotEmpty) ...[
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
@@ -478,7 +518,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         size: 16, color: AppColors.primary),
                                     const SizedBox(width: 6),
                                     Text(
-                                      'Выполнено сегодня · ${completedHabits.length}',
+                                      'Выполнено · ${completedHabits.length + completedStoreTasks.length}',
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -488,6 +528,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 12),
+                                // Completed store tasks
+                                for (final task in completedStoreTasks)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Dismissible(
+                                      key: Key('done_store_${task.id}'),
+                                      direction: DismissDirection.endToStart,
+                                      background: Container(
+                                        alignment: Alignment.centerRight,
+                                        padding: const EdgeInsets.only(right: 20),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.red,
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: const Icon(
+                                            Icons.delete_outline_rounded,
+                                            color: Colors.white,
+                                            size: 24),
+                                      ),
+                                      onDismissed: (_) =>
+                                          AppStore.instance.deleteTask(task.id),
+                                      child: Opacity(
+                                        opacity: 0.6,
+                                        child: TaskItemWidget(
+                                          task: task,
+                                          onToggle: () {},
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                // Completed habits
                                 for (final habit in completedHabits)
                                   Padding(
                                     padding: const EdgeInsets.only(bottom: 10),
@@ -608,6 +679,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           createdAt: now,
           isQuickTask: true,
           xpReward: 20,
+          coinReward: 10,
           deadline: now.add(const Duration(hours: 24)),
         ),
       );
@@ -631,7 +703,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
-          content: Text('Задача выполнена! +${habit.xpReward} XP'),
+          content: Text('Задача выполнена! ${habit.coinReward > 0 ? '+${habit.coinReward} монет  ' : ''}+${habit.xpReward} XP'),
           duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
@@ -669,7 +741,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _deleteTimers.remove(id);
     setState(() => _pendingDelete.remove(id));
     if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
-    await AppStore.instance.completeHabitTask(xpReward: habit.xpReward);
+    await AppStore.instance.completeHabitTask(
+      xpReward: habit.xpReward,
+      coinReward: habit.coinReward,
+    );
     await _habitService.updateHabit(
       habit.copyWith(completed: true, completedAt: DateTime.now()),
     );
@@ -689,6 +764,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {
       if (!mounted) return;
       MainShell.of(context).showToast('Ошибка Firestore', isError: true);
+    }
+  }
+
+  Future<void> _completeStoreTask(tm.TaskModel task) async {
+    try {
+      await AppStore.instance.updateTask(task.copyWith(completed: true));
+      if (!mounted) return;
+      final rewardText = task.xpReward > 0
+          ? '+${task.reward} монет  +${task.xpReward} XP'
+          : (task.isXp ? '+${task.reward} XP' : '+${task.reward} монет');
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Text('Задача выполнена! $rewardText'),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          backgroundColor: AppColors.primary,
+        ));
+    } catch (_) {
+      if (!mounted) return;
+      MainShell.of(context).showToast('Ошибка обновления', isError: true);
     }
   }
 
@@ -713,8 +811,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       id: habit.id ?? '',
       title: habit.title,
       subtitle: subtitle,
-      reward: habit.isQuickTask ? habit.xpReward : 0,
-      isXp: habit.isQuickTask,
+      reward: habit.isQuickTask ? habit.coinReward : 0,
+      xpReward: habit.xpReward,
+      isXp: habit.isQuickTask && habit.coinReward == 0,
       completed: habit.completed,
     );
   }

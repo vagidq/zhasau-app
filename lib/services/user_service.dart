@@ -102,6 +102,8 @@ class UserService {
       'isXp': task.isXp,
       'tagText': task.tag?.text,
       'tagType': task.tag?.type.toString().split('.').last,
+      'priority': task.priority,
+      'xpReward': task.xpReward,
       'completed': task.completed,
     });
   }
@@ -111,9 +113,11 @@ class UserService {
       'title': task.title,
       'subtitle': task.subtitle,
       'reward': task.reward,
+      'xpReward': task.xpReward,
       'isXp': task.isXp,
       'tagText': task.tag?.text,
-      'tagType': task.tag?.type.toString(),
+      'tagType': task.tag?.type.toString().split('.').last,
+      'priority': task.priority,
       'completed': task.completed,
     });
   }
@@ -128,12 +132,16 @@ class UserService {
         final data = doc.data() as Map<String, dynamic>;
         TagType? tagType;
         if (data['tagType'] != null) {
-          switch (data['tagType'] as String) {
+          final typeStr = (data['tagType'] as String).replaceFirst('TagType.', '');
+          switch (typeStr) {
             case 'high':
               tagType = TagType.high;
               break;
             case 'medium':
               tagType = TagType.medium;
+              break;
+            case 'low':
+              tagType = TagType.low;
               break;
             case 'repeat':
               tagType = TagType.repeat;
@@ -152,8 +160,10 @@ class UserService {
           subtitle: data['subtitle'] ?? '',
           goalId: data['goalId'],
           reward: (data['reward'] as num?) ?? 0,
+          xpReward: (data['xpReward'] as num?)?.toInt() ?? 0,
           isXp: data['isXp'] ?? true,
           tag: tag,
+          priority: (data['priority'] as num?)?.toInt() ?? 1,
           completed: data['completed'] ?? false,
         );
       }).toList();

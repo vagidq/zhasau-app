@@ -247,7 +247,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 3),
                                     child: GestureDetector(
-                                      onTap: () => _showDayInfo(context, chartLabels[i], activity[i]),
+                                      onTap: () => _showDayInfo(context, chartLabels[i], activity[i], user.weeklyXp[i], user.weeklyCoins[i]),
                                       child: Container(
                                         color: Colors.transparent, // чтобы вся область столбца ловила клик
                                         child: Column(
@@ -501,10 +501,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showDayInfo(BuildContext context, String dayLabel, int tasksDone) {
-    final xpEarned = tasksDone * 10;
-    final coinsEarned = tasksDone * 5;
-
+  void _showDayInfo(BuildContext context, String dayLabel, int tasksDone, int xpEarned, int coinsEarned) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,

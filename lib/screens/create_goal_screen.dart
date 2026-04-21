@@ -3,6 +3,7 @@ import '../theme/app_colors.dart';
 import '../models/app_store.dart';
 import '../models/goal_model.dart';
 import '../models/task_model.dart';
+import 'create_task_screen.dart';
 
 class CreateGoalScreen extends StatefulWidget {
   const CreateGoalScreen({super.key});
@@ -20,8 +21,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
   final DateTime _startDate = DateTime.now();
   DateTime? _deadline;
 
-  // Inline task list
-  final List<TextEditingController> _taskControllers = [];
+  // Draft task list
+  final List<TaskModel> _draftTasks = [];
 
   final _categories = ['Здоровье', 'Образование', 'Карьера', 'Хобби'];
   final _categoryIcons = [
@@ -47,7 +48,6 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
-    for (final c in _taskControllers) c.dispose();
     super.dispose();
   }
 
@@ -74,13 +74,23 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
     if (picked != null) setState(() => _deadline = picked);
   }
 
-  void _addTaskField() {
-    setState(() => _taskControllers.add(TextEditingController()));
+  Future<void> _addTask() async {
+    final TaskModel? draft = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const CreateTaskScreen(
+          isFullPage: true,
+          asDraft: true,
+        ),
+      ),
+    );
+    if (draft != null) {
+      if (!mounted) return;
+      setState(() => _draftTasks.add(draft));
+    }
   }
 
-  void _removeTaskField(int index) {
-    _taskControllers[index].dispose();
-    setState(() => _taskControllers.removeAt(index));
+  void _removeTask(int index) {
+    setState(() => _draftTasks.removeAt(index));
   }
 
   void _showSnack(String text, {bool isError = false}) {
@@ -109,20 +119,16 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
     };
 
     final goalId = DateTime.now().millisecondsSinceEpoch.toString();
-    final taskTitles = _taskControllers
-        .map((c) => c.text.trim())
-        .where((t) => t.isNotEmpty)
-        .toList();
 
     final newGoal = GoalModel(
       id: goalId,
       title: _titleController.text.trim(),
       subtitle: _descriptionController.text.trim(),
-      badge: '0/${taskTitles.length}',
+      badge: '0/${_draftTasks.length}',
       iconName: _categories[_selectedCategory].toLowerCase(),
       color: colorMap[_selectedCategory]!,
       progress: 0,
-      tasksLeft: taskTitles.length,
+      tasksLeft: _draftTasks.length,
       deadline: _deadline,
       startDate: _startDate,
     );
@@ -130,15 +136,12 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
     try {
       await AppStore.instance.addGoal(newGoal);
 
-      // Create linked tasks via AppStore (same authenticated service)
-      for (int i = 0; i < taskTitles.length; i++) {
-        final task = TaskModel(
-          id: '${goalId}_task_$i',
-          title: taskTitles[i],
-          subtitle: _categories[_selectedCategory],
+      // Create linked tasks via AppStore
+      for (int i = 0; i < _draftTasks.length; i++) {
+        final draftTask = _draftTasks[i];
+        final task = draftTask.copyWith(
+          id: '${goalId}_task_${DateTime.now().millisecondsSinceEpoch}_$i',
           goalId: goalId,
-          reward: 10,
-          isXp: true,
         );
         await AppStore.instance.addTask(task);
       }
@@ -436,8 +439,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                       ),
                       child: Column(
                         children: [
-                          // Existing task fields
-                          for (int i = 0; i < _taskControllers.length; i++)
+                          // Existing draft tasks
+                          for (int i = 0; i < _draftTasks.length; i++)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
                               child: Row(
@@ -446,22 +449,28 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                                       color: AppColors.textLight, size: 20),
                                   const SizedBox(width: 8),
                                   Expanded(
-                                    child: TextField(
-                                      controller: _taskControllers[i],
-                                      decoration: InputDecoration(
-                                        hintText: 'Название задачи...',
-                                        hintStyle: TextStyle(
-                                            color: AppColors.textLight,
-                                            fontSize: 14),
-                                        border: InputBorder.none,
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
-                                      style: const TextStyle(fontSize: 15),
+                                    child: Text(
+                                      _draftTasks[i].title,
+                                      style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w500,
+                                          color: AppColors.textDark),
                                     ),
                                   ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primaryLight,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      _draftTasks[i].subtitle,
+                                      style: TextStyle(fontSize: 11, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
                                   GestureDetector(
-                                    onTap: () => _removeTaskField(i),
+                                    onTap: () => _removeTask(i),
                                     child: Icon(Icons.close_rounded,
                                         color: AppColors.textLight, size: 20),
                                   ),
@@ -471,7 +480,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
 
                           // Add button
                           GestureDetector(
-                            onTap: _addTaskField,
+                            onTap: _addTask,
                             child: Row(
                               children: [
                                 Container(

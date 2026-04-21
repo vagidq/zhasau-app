@@ -112,14 +112,14 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
                               ? Icons.bar_chart_rounded
                               : Icons.access_time_rounded,
                           size: 14,
-                          color: AppColors.textMuted,
+                          color: _getSubtitleColor(task.subtitle, task.priority),
                         ),
                         const SizedBox(width: 4),
                         Text(
                           task.subtitle,
                           style: TextStyle(
                             fontSize: 13,
-                            color: AppColors.textMuted,
+                            color: _getSubtitleColor(task.subtitle, task.priority),
                           ),
                         ),
                         if (task.tag != null) ...[
@@ -139,17 +139,40 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
   }
 
   Widget _rewardWidget(TaskModel task) {
-    if (task.reward == 0) {
-      return Text(
-        '0',
-        style: TextStyle(
-          color: AppColors.textLight,
-          fontWeight: FontWeight.w700,
-          fontSize: 14,
-        ),
+    // Coins + XP (tasks created via CreateTaskScreen)
+    if (!task.isXp && task.reward > 0 && task.xpReward > 0) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '+${task.reward}',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.toll_rounded, color: AppColors.yellow, size: 14),
+            ],
+          ),
+          Text(
+            '+${task.xpReward} XP',
+            style: TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+            ),
+          ),
+        ],
       );
     }
-    if (task.isXp) {
+    // Only XP (legacy goal tasks)
+    if (task.isXp && task.reward > 0) {
       return Text(
         '+${task.reward} XP',
         style: TextStyle(
@@ -159,21 +182,25 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
         ),
       );
     }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '+${task.reward}',
-          style: TextStyle(
-            color: AppColors.warning,
-            fontWeight: FontWeight.w700,
-            fontSize: 14,
+    // Only coins
+    if (!task.isXp && task.reward > 0) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '+${task.reward}',
+            style: TextStyle(
+              color: AppColors.warning,
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
           ),
-        ),
-        const SizedBox(width: 3),
-        Icon(Icons.toll_rounded, color: AppColors.yellow, size: 16),
-      ],
-    );
+          const SizedBox(width: 3),
+          Icon(Icons.toll_rounded, color: AppColors.yellow, size: 16),
+        ],
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _tagWidget(TaskTag tag) {
@@ -187,6 +214,12 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
       case TagType.medium:
         return _badge(
             tag.text,
+            AppColors.warningLight,
+            AppColors.warning,
+            null);
+      case TagType.low:
+        return _badge(
+            tag.text,
             AppColors.blueLight,
             AppColors.blue,
             null);
@@ -197,6 +230,15 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
             AppColors.primary,
             Icons.repeat_rounded);
     }
+  }
+
+  Color _getSubtitleColor(String subtitle, int priority) {
+    if (subtitle == 'Низкий' || subtitle == 'Средний' || subtitle == 'Высокий') {
+      if (priority == 0) return AppColors.blue;
+      if (priority == 1) return AppColors.warning;
+      if (priority == 2) return AppColors.red;
+    }
+    return AppColors.textMuted;
   }
 
   Widget _badge(String text, Color bg, Color fg, IconData? icon) {

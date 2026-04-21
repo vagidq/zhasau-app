@@ -1,27 +1,62 @@
 import 'package:flutter/material.dart';
+import '../models/app_store.dart';
+import '../models/task_model.dart';
 import '../theme/app_colors.dart';
 import 'main_shell.dart';
 
 class CreateTaskScreen extends StatefulWidget {
   final bool isFullPage;
-  const CreateTaskScreen({super.key, this.isFullPage = false});
+  final bool asDraft;
+  final String? initialGoalId;
+  const CreateTaskScreen({
+    super.key,
+    this.isFullPage = false,
+    this.asDraft = false,
+    this.initialGoalId,
+  });
 
   @override
   State<CreateTaskScreen> createState() => _CreateTaskScreenState();
 }
 
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
-  int _priority = 1; // 0=Low, 1=Med, 2=High
-  double _complexity = 2;
-  bool _repeat = true;
+  int _priority = 1; // 0=Низкий, 1=Средний, 2=Высокий
+  double _complexity = 1; // 1=Легко(10), 2=Нормально(20), 3=Эпично(30)
+  bool _repeat = false;
   int _repeatIndex = 0;
+  String? _selectedGoalId; // null = без цели
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedGoalId = widget.initialGoalId;
+  }
+
+  final _titleController = TextEditingController();
+  final _descController = TextEditingController();
 
   final _priorities = ['Низкий', 'Средний', 'Высокий'];
   final _repeats = ['Ежедневно', 'Еженедельно', 'Ежемесячно'];
 
+  int get _coins {
+    return (_priority * 20) + (_complexity.toInt() * 10);
+  }
+
+  int get _xp {
+    return _coins + 10;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isModal = !widget.isFullPage;
+    final store = AppStore.instance;
+    final goals = store.goals;
 
     Widget content = Scaffold(
       backgroundColor: AppColors.bgMain,
@@ -42,9 +77,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 children: [
                   IconButton(
                     icon: Icon(
-                      isModal
-                          ? Icons.close_rounded
-                          : Icons.arrow_back_ios_new_rounded,
+                      widget.isFullPage
+                          ? Icons.arrow_back_ios_new_rounded
+                          : Icons.close_rounded,
                       size: 22,
                     ),
                     onPressed: () => Navigator.of(context).pop(),
@@ -74,24 +109,23 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   children: [
                     _label('Название задачи'),
                     TextField(
+                      controller: _titleController,
                       decoration: InputDecoration(
                         hintText: 'Напр. Сходить в спортзал',
                         filled: true,
                         fillColor: AppColors.bgWhite,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                              color: AppColors.borderDark),
+                          borderSide: BorderSide(color: AppColors.borderDark),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                              color: AppColors.borderDark),
+                          borderSide: BorderSide(color: AppColors.borderDark),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                              color: AppColors.primary, width: 1.5),
+                          borderSide:
+                              BorderSide(color: AppColors.primary, width: 1.5),
                         ),
                         contentPadding: const EdgeInsets.all(16),
                       ),
@@ -99,6 +133,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
                     _label('Описание'),
                     TextField(
+                      controller: _descController,
                       maxLines: 3,
                       decoration: InputDecoration(
                         hintText: 'Добавьте детали или подзадачи...',
@@ -106,49 +141,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         fillColor: AppColors.bgWhite,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                              color: AppColors.borderDark),
+                          borderSide: BorderSide(color: AppColors.borderDark),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                              color: AppColors.borderDark),
+                          borderSide: BorderSide(color: AppColors.borderDark),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(
-                              color: AppColors.primary, width: 1.5),
+                          borderSide:
+                              BorderSide(color: AppColors.primary, width: 1.5),
                         ),
                         contentPadding: const EdgeInsets.all(16),
                       ),
-                    ),
-
-                    const SizedBox(height: 16),
-                    // Date & Time row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _label('Дата'),
-                              _iconInput(
-                                  Icons.calendar_today_rounded,
-                                  '24.05.2024'),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _label('Время'),
-                              _iconInput(Icons.access_time_rounded, '18:00'),
-                            ],
-                          ),
-                        ),
-                      ],
                     ),
 
                     _label('Приоритет'),
@@ -160,10 +165,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             onTap: () => setState(() => _priority = i),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
-                              margin: EdgeInsets.only(
-                                  right: i < 2 ? 12 : 0),
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 12),
+                              margin: EdgeInsets.only(right: i < 2 ? 12 : 0),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
                                 color: _priority == i
                                     ? AppColors.primaryLight
@@ -206,7 +210,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('Сложность',
+                              const Text(
+                                'Сложность',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 16,
@@ -215,11 +220,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                               Row(
                                 children: [
                                   Icon(Icons.toll_rounded,
-                                      color: AppColors.primaryDark,
-                                      size: 18),
+                                      color: AppColors.primaryDark, size: 18),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '+50 монет',
+                                    '+$_coins монет  +$_xp XP',
                                     style: TextStyle(
                                       color: AppColors.primaryDark,
                                       fontWeight: FontWeight.w800,
@@ -239,8 +243,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                               overlayShape: const RoundSliderOverlayShape(
                                   overlayRadius: 20),
                               activeTrackColor: AppColors.primary,
-                              inactiveTrackColor:
-                                  const Color(0xFFDDD6FE),
+                              inactiveTrackColor: const Color(0xFFDDD6FE),
                               thumbColor: AppColors.primary,
                             ),
                             child: Slider(
@@ -257,53 +260,52 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             children: [
                               Text('Легко',
                                   style: TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12)),
+                                      color: AppColors.textMuted, fontSize: 12)),
                               Text('Нормально',
                                   style: TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12)),
+                                      color: AppColors.textMuted, fontSize: 12)),
                               Text('Эпично',
                                   style: TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: 12)),
+                                      color: AppColors.textMuted, fontSize: 12)),
                             ],
                           ),
                         ],
                       ),
                     ),
 
-                    _label('Привязать к цели'),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.bgWhite,
-                        borderRadius: BorderRadius.circular(16),
-                        border:
-                            Border.all(color: AppColors.borderDark),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          isExpanded: true,
-                          value: 'Без цели',
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'Без цели',
-                                child: Text('Без цели')),
-                            DropdownMenuItem(
-                                value: 'Марафон 2024',
-                                child: Text('Марафон 2024')),
-                            DropdownMenuItem(
-                                value: 'Английский B2',
-                                child: Text('Английский B2')),
-                          ],
-                          onChanged: (_) {},
+                    if (!widget.asDraft) ...[
+                      _label('Привязать к цели'),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgWhite,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.borderDark),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String?>(
+                            isExpanded: true,
+                            value: _selectedGoalId,
+                            items: [
+                              const DropdownMenuItem<String?>(
+                                value: null,
+                                child: Text('Без цели'),
+                              ),
+                              ...goals.map((g) => DropdownMenuItem<String?>(
+                                    value: g.id,
+                                    child: Text(g.subtitle.isNotEmpty
+                                        ? g.subtitle
+                                        : g.title),
+                                  )),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _selectedGoalId = v),
+                          ),
                         ),
                       ),
-                    ),
-
-                    const SizedBox(height: 20),
+                      const SizedBox(height: 20),
+                    ],
                     // Repeat toggle
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -372,16 +374,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                   setState(() => _repeatIndex = i),
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 200),
-                                margin: EdgeInsets.only(
-                                    right: i < 2 ? 12 : 0),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 10),
+                                margin: EdgeInsets.only(right: i < 2 ? 12 : 0),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 10),
                                 decoration: BoxDecoration(
                                   color: _repeatIndex == i
                                       ? AppColors.primary
                                       : AppColors.bgWhite,
-                                  borderRadius:
-                                      BorderRadius.circular(20),
+                                  borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
                                     color: _repeatIndex == i
                                         ? AppColors.primary
@@ -411,14 +411,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
-                          MainShell.of(context)
-                              .showToast('Задача успешно создана!');
-                          Future.delayed(const Duration(milliseconds: 600),
-                              () {
-                            if (mounted) Navigator.of(context).pop();
-                          });
-                        },
+                        onPressed: () => _createTask(context),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(vertical: 18),
@@ -428,7 +421,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           elevation: 0,
                           shadowColor: Colors.transparent,
                         ),
-                        child: const Text('Создать задачу',
+                        child: const Text(
+                          'Создать задачу',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
@@ -450,6 +444,72 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return content;
   }
 
+  Future<void> _createTask(BuildContext context) async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Введите название задачи')),
+      );
+      return;
+    }
+
+    final store = AppStore.instance;
+    final priorityLabels = ['Низкий', 'Средний', 'Высокий'];
+    final compLabels = {1.0: 'Легко', 2.0: 'Нормально', 3.0: 'Эпично'};
+
+    // Build subtitle: priority label
+    final subtitle = priorityLabels[_priority];
+
+    // Tag based on complexity
+    final tagTypes = {1.0: TagType.low, 2.0: TagType.medium, 3.0: TagType.high};
+    final tag = TaskTag(
+      text: compLabels[_complexity] ?? 'Легко',
+      type: tagTypes[_complexity] ?? TagType.low,
+    );
+
+    final task = TaskModel(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+      subtitle: subtitle,
+      goalId: widget.asDraft ? null : _selectedGoalId,
+      reward: _coins,
+      xpReward: _xp,
+      isXp: false,
+      tag: tag,
+      priority: _priority,
+      completed: false,
+    );
+
+    if (widget.asDraft) {
+      Navigator.of(context).pop(task);
+      return;
+    }
+
+    try {
+      await store.addTask(task);
+      if (mounted) {
+        if (widget.isFullPage) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Задача успешно создана!')),
+           );
+           Navigator.of(context).pop();
+        } else {
+           final shell = MainShell.of(context);
+           shell.showToast('Задача успешно создана!');
+           Future.delayed(const Duration(milliseconds: 600), () {
+             if (mounted) shell.setIndex(0);
+           });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+    }
+  }
+
   Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 8),
         child: Text(
@@ -459,28 +519,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             fontWeight: FontWeight.w700,
             color: AppColors.textDark,
           ),
-        ),
-      );
-
-  Widget _iconInput(IconData icon, String value) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppColors.bgWhite,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.borderDark),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: AppColors.primary, size: 20),
-            const SizedBox(width: 10),
-            Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 15,
-              ),
-            ),
-          ],
         ),
       );
 }

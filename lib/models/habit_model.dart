@@ -8,6 +8,7 @@ class HabitModel {
   final DateTime? completedAt;
   final bool isQuickTask;
   final int xpReward;
+  final int coinReward;
   final DateTime? deadline;
 
   const HabitModel({
@@ -18,6 +19,7 @@ class HabitModel {
     this.completedAt,
     this.isQuickTask = false,
     this.xpReward = 10,
+    this.coinReward = 0,
     this.deadline,
   });
 
@@ -62,6 +64,7 @@ class HabitModel {
       completedAt: completedAt,
       isQuickTask: data['isQuickTask'] == true,
       xpReward: (data['xpReward'] as num?)?.toInt() ?? 10,
+      coinReward: (data['coinReward'] as num?)?.toInt() ?? 0,
       deadline: deadline,
     );
   }
@@ -74,6 +77,7 @@ class HabitModel {
       if (completedAt != null) 'completedAt': Timestamp.fromDate(completedAt!),
       'isQuickTask': isQuickTask,
       'xpReward': xpReward,
+      'coinReward': coinReward,
       if (deadline != null) 'deadline': Timestamp.fromDate(deadline!),
     };
   }
@@ -87,6 +91,7 @@ class HabitModel {
     bool clearCompletedAt = false,
     bool? isQuickTask,
     int? xpReward,
+    int? coinReward,
     DateTime? deadline,
   }) {
     return HabitModel(
@@ -97,6 +102,7 @@ class HabitModel {
       completedAt: clearCompletedAt ? null : (completedAt ?? this.completedAt),
       isQuickTask: isQuickTask ?? this.isQuickTask,
       xpReward: xpReward ?? this.xpReward,
+      coinReward: coinReward ?? this.coinReward,
       deadline: deadline ?? this.deadline,
     );
   }
