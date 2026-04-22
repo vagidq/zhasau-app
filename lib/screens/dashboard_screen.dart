@@ -5,6 +5,7 @@ import '../models/app_store.dart';
 import '../models/habit_model.dart';
 import '../models/task_model.dart' as tm;
 import '../services/habit_service.dart';
+import '../services/google_calendar_service.dart';
 import '../widgets/goal_card_horizontal.dart';
 import '../widgets/task_item_widget.dart';
 import 'main_shell.dart';
@@ -672,19 +673,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     try {
       final now = DateTime.now();
-      await _habitService.addHabit(
-        HabitModel(
-          title: text.trim(),
-          completed: false,
-          createdAt: now,
-          isQuickTask: true,
-          xpReward: 20,
-          coinReward: 10,
-          deadline: now.add(const Duration(hours: 24)),
-        ),
+      final habit = HabitModel(
+        title: text.trim(),
+        completed: false,
+        createdAt: now,
+        isQuickTask: true,
+        xpReward: 20,
+        coinReward: 10,
+        deadline: now.add(const Duration(hours: 24)),
       );
+      await _habitService.addHabit(habit);
       _quickAddController.clear();
       MainShell.of(context).showToast('Задача добавлена!');
+
+      if (GoogleCalendarService.instance.isSyncEnabled.value) {
+        GoogleCalendarService.instance.syncHabitToCalendar(habit);
+      }
     } catch (_) {
       MainShell.of(context).showToast('Ошибка сохранения', isError: true);
     }

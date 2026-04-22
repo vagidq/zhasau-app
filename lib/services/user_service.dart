@@ -30,6 +30,7 @@ class UserService {
       'tasksLeft': goal.tasksLeft,
       'deadline': goal.deadline?.toIso8601String(),
       'startDate': goal.startDate.toIso8601String(),
+      if (goal.calendarEventId != null) 'calendarEventId': goal.calendarEventId,
     });
   }
 
@@ -44,6 +45,7 @@ class UserService {
       'tasksLeft': goal.tasksLeft,
       'deadline': goal.deadline?.toIso8601String(),
       'startDate': goal.startDate.toIso8601String(),
+      'calendarEventId': goal.calendarEventId,
     });
   }
 
@@ -83,6 +85,7 @@ class UserService {
           tasksLeft: (data['tasksLeft'] as num?)?.toInt() ?? 0,
           deadline: data['deadline'] != null ? DateTime.parse(data['deadline']) : null,
           startDate: data['startDate'] != null ? DateTime.parse(data['startDate']) : null,
+          calendarEventId: data['calendarEventId'] as String?,
         );
       }).toList();
     });

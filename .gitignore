@@ -43,3 +43,20 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase / Google services secrets (do NOT commit)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+firebase.json
+.firebaserc
+.flutter-plugins
+
+# Local environment configs
+/.flutter-plugins-dependencies
+/android/.gradle/
+/ios/Pods/
+/ios/.symlinks/
+/macos/Pods/
+/macos/.symlinks/
+/windows/flutter/ephemeral/
+/linux/flutter/ephemeral/
