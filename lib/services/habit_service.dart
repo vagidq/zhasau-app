@@ -6,8 +6,9 @@ class HabitService {
   final CollectionReference<Map<String, dynamic>> _habitsRef =
       FirebaseFirestore.instance.collection('habits');
 
-  Future<void> addHabit(HabitModel habit) async {
-    await _habitsRef.add(habit.toMap());
+  Future<String> addHabit(HabitModel habit) async {
+    final ref = await _habitsRef.add(habit.toMap());
+    return ref.id;
   }
 
   Stream<List<HabitModel>> getHabits() {
