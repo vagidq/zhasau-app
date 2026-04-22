@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
-import 'main_shell.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_service.dart';
 import '../services/google_calendar_service.dart';
@@ -33,6 +32,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     AppColors.isDarkMode.removeListener(_onThemeChange);
     super.dispose();
+  }
+
+  void _showToast(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          backgroundColor: isError ? AppColors.red : AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
   }
 
   @override
@@ -91,7 +114,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: 'Профиль',
                         subtitle: AppStore.instance.userProfile.name,
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => MainShell.of(context).showToast('Настройки профиля'),
+                        onTap: () => _showToast('Настройки профиля'),
                       ),
                       _divider(),
                       _settingsItem(
@@ -99,7 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.warning,
                         title: 'Пароль и безопасность',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => MainShell.of(context).showToast('Безопасность'),
+                        onTap: () => _showToast('Безопасность'),
                       ),
                     ]),
 
@@ -155,14 +178,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   if (v) {
                                     final ok = await GoogleCalendarService.instance.signIn();
                                     if (ok && mounted) {
-                                      MainShell.of(context).showToast('Google Calendar подключен!');
+                                      _showToast('Google Calendar подключен!');
                                     } else if (mounted) {
-                                      MainShell.of(context).showToast('Не удалось подключить', isError: true);
+                                      _showToast('Не удалось подключить', isError: true);
                                     }
                                   } else {
                                     await GoogleCalendarService.instance.signOut();
                                     if (mounted) {
-                                      MainShell.of(context).showToast('Google Calendar отключен');
+                                      _showToast('Google Calendar отключен');
                                     }
                                   }
                                   setState(() {});
@@ -272,7 +295,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.textLight,
                         title: 'Поддержка и помощь',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => MainShell.of(context).showToast('Раздел поддержки'),
+                        onTap: () => _showToast('Раздел поддержки'),
                       ),
                       _divider(),
                       _settingsItem(
@@ -282,7 +305,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing: Text('Версия 1.0.0',
                           style: TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w600),
                         ),
-                        onTap: () => MainShell.of(context).showToast('Zhasau App v1.0.0'),
+                        onTap: () => _showToast('Zhasau App v1.0.0'),
                       ),
                     ]),
 
@@ -333,22 +356,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _syncAll() async {
-    // Placeholder — actual habits list would come from HabitService stream
-    // For now, sync goals from AppStore
     final gcal = GoogleCalendarService.instance;
-    final goals = AppStore.instance.goals;
+    final store = AppStore.instance;
+    final goals = store.goals;
     gcal.isSyncing.value = true;
 
     try {
       for (final goal in goals) {
-        await gcal.syncGoalToCalendar(goal);
+        final eventId = await gcal.syncGoalToCalendar(goal);
+        // Save calendarEventId back to Firestore if it was newly created
+        // so next sync updates instead of creating a duplicate.
+        if (eventId != null && eventId != goal.calendarEventId) {
+          await store.updateGoal(goal.copyWith(calendarEventId: eventId));
+        }
       }
       if (mounted) {
-        MainShell.of(context).showToast('Синхронизация завершена!');
+        _showToast('Синхронизация завершена!');
       }
     } catch (e) {
       if (mounted) {
-        MainShell.of(context).showToast('Ошибка синхронизации', isError: true);
+        _showToast('Ошибка синхронизации', isError: true);
       }
     } finally {
       gcal.isSyncing.value = false;

@@ -682,12 +682,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         coinReward: 10,
         deadline: now.add(const Duration(hours: 24)),
       );
-      await _habitService.addHabit(habit);
+      final habitId = await _habitService.addHabit(habit);
       _quickAddController.clear();
       MainShell.of(context).showToast('Задача добавлена!');
 
       if (GoogleCalendarService.instance.isSyncEnabled.value) {
-        GoogleCalendarService.instance.syncHabitToCalendar(habit);
+        final eventId =
+            await GoogleCalendarService.instance.syncHabitToCalendar(habit);
+        if (eventId != null) {
+          await _habitService.updateHabit(
+            habit.copyWith(id: habitId, calendarEventId: eventId),
+          );
+        }
       }
     } catch (_) {
       MainShell.of(context).showToast('Ошибка сохранения', isError: true);
