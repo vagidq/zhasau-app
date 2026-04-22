@@ -10,6 +10,7 @@ class HabitModel {
   final int xpReward;
   final int coinReward;
   final DateTime? deadline;
+  final String? calendarEventId;
 
   const HabitModel({
     this.id,
@@ -21,6 +22,7 @@ class HabitModel {
     this.xpReward = 10,
     this.coinReward = 0,
     this.deadline,
+    this.calendarEventId,
   });
 
   /// True if this is a quick task whose deadline has passed without completion.
@@ -66,6 +68,7 @@ class HabitModel {
       xpReward: (data['xpReward'] as num?)?.toInt() ?? 10,
       coinReward: (data['coinReward'] as num?)?.toInt() ?? 0,
       deadline: deadline,
+      calendarEventId: data['calendarEventId'] as String?,
     );
   }
 
@@ -79,6 +82,7 @@ class HabitModel {
       'xpReward': xpReward,
       'coinReward': coinReward,
       if (deadline != null) 'deadline': Timestamp.fromDate(deadline!),
+      if (calendarEventId != null) 'calendarEventId': calendarEventId,
     };
   }
 
@@ -93,6 +97,7 @@ class HabitModel {
     int? xpReward,
     int? coinReward,
     DateTime? deadline,
+    String? calendarEventId,
   }) {
     return HabitModel(
       id: id ?? this.id,
@@ -104,6 +109,7 @@ class HabitModel {
       xpReward: xpReward ?? this.xpReward,
       coinReward: coinReward ?? this.coinReward,
       deadline: deadline ?? this.deadline,
+      calendarEventId: calendarEventId ?? this.calendarEventId,
     );
   }
 }
