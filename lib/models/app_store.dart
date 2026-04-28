@@ -244,7 +244,7 @@ class AppStore extends ChangeNotifier {
 
   // Update UI when profile changes (for habit rewards, etc.)
   void refreshUI() {
-    print('DEBUG: refreshUI called, notifying listeners');
+    debugPrint('DEBUG: refreshUI called, notifying listeners');
     notifyListeners();
   }
 

@@ -11,6 +11,7 @@ class GoalModel {
   final int tasksLeft;
   final DateTime? deadline;
   final DateTime startDate;
+  final String? calendarEventId;
 
   GoalModel({
     required this.id,
@@ -23,6 +24,7 @@ class GoalModel {
     required this.tasksLeft,
     this.deadline,
     DateTime? startDate,
+    this.calendarEventId,
   }) : startDate = startDate ?? DateTime.now();
 
   /// True while deadline hasn't passed (or no deadline set).
@@ -40,6 +42,7 @@ class GoalModel {
     int? tasksLeft,
     DateTime? deadline,
     DateTime? startDate,
+    String? calendarEventId,
   }) {
     return GoalModel(
       id: id ?? this.id,
@@ -52,6 +55,7 @@ class GoalModel {
       tasksLeft: tasksLeft ?? this.tasksLeft,
       deadline: deadline ?? this.deadline,
       startDate: startDate ?? this.startDate,
+      calendarEventId: calendarEventId ?? this.calendarEventId,
     );
   }
 }

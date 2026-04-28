@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class UserProfile {
   final String id;
   String name;
@@ -36,10 +38,10 @@ class UserProfile {
 
   // Add XP and auto-level up
   void addXp(int amount) {
-    print('DEBUG: addXp called with amount=$amount, xp before=$xp');
+    debugPrint('DEBUG: addXp called with amount=$amount, xp before=$xp');
     xp += amount;
     level = calculateLevel(xp);
-    print('DEBUG: addXp done, xp after=$xp, level=$level');
+    debugPrint('DEBUG: addXp done, xp after=$xp, level=$level');
   }
 
   // Add coins

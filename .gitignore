@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase — ключи проекта (держать локально или в секретах CI)
+**/google-services.json
+**/GoogleService-Info.plist

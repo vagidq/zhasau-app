@@ -5,6 +5,7 @@ import '../models/app_store.dart';
 import '../models/habit_model.dart';
 import '../models/task_model.dart' as tm;
 import '../services/habit_service.dart';
+import '../services/google_calendar_service.dart';
 import '../widgets/goal_card_horizontal.dart';
 import '../widgets/task_item_widget.dart';
 import 'main_shell.dart';
@@ -35,9 +36,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onStoreChanged() {
-    print('DEBUG: _onStoreChanged called');
+    debugPrint('DEBUG: _onStoreChanged called');
     if (mounted) {
-      print('DEBUG: setState called, mounted=true');
+      debugPrint('DEBUG: setState called, mounted=true');
       setState(() {});
     }
   }
@@ -47,14 +48,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     AppStore.instance.removeListener(_onStoreChanged);
     _quickAddController.dispose();
     _quickAddFocus.dispose();
-    for (final t in _deleteTimers.values) t.cancel();
+    for (final t in _deleteTimers.values) {
+      t.cancel();
+    }
     _deleteTimers.clear();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    print('DEBUG: DashboardScreen.build called');
+    debugPrint('DEBUG: DashboardScreen.build called');
     final user = AppStore.instance.userProfile;
     final xpPercent = user.getXpProgressPercent() / 100.0;
 
@@ -601,19 +604,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     try {
       final now = DateTime.now();
-      await _habitService.addHabit(
-        HabitModel(
-          title: text.trim(),
-          completed: false,
-          createdAt: now,
-          isQuickTask: true,
-          xpReward: 20,
-          deadline: now.add(const Duration(hours: 24)),
-        ),
+      final habit = HabitModel(
+        title: text.trim(),
+        completed: false,
+        createdAt: now,
+        isQuickTask: true,
+        xpReward: 20,
+        deadline: now.add(const Duration(hours: 24)),
       );
+      await _habitService.addHabit(habit);
       _quickAddController.clear();
+      if (!mounted) return;
       MainShell.of(context).showToast('Задача добавлена!');
+
+      // Auto-sync to Google Calendar if enabled
+      if (GoogleCalendarService.instance.isSyncEnabled.value) {
+        GoogleCalendarService.instance.syncHabitToCalendar(habit);
+      }
     } catch (_) {
+      if (!mounted) return;
       MainShell.of(context).showToast('Ошибка сохранения', isError: true);
     }
   }
@@ -675,23 +684,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _addTestHabit() async {
-    try {
-      await _habitService.addHabit(
-        HabitModel(
-          title: 'Test Habit',
-          completed: false,
-          createdAt: DateTime.now(),
-        ),
-      );
-      if (!mounted) return;
-      MainShell.of(context).showToast('Test Habit сохранен');
-    } catch (_) {
-      if (!mounted) return;
-      MainShell.of(context).showToast('Ошибка Firestore', isError: true);
-    }
-  }
-
   tm.TaskModel _habitToTask(HabitModel habit) {
     String subtitle;
     if (habit.isQuickTask && habit.deadline != null) {
@@ -702,8 +694,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final h = remaining.inHours;
         final m = remaining.inMinutes % 60;
         subtitle = h > 0
-            ? 'Быстрая задача · осталось ${h}ч ${m}м'
-            : 'Быстрая задача · осталось ${m}м';
+            ? 'Быстрая задача · осталось $hч $mм'
+            : 'Быстрая задача · осталось $mм';
       }
     } else {
       subtitle = 'Задача';

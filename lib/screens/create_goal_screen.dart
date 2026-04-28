@@ -47,7 +47,9 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
-    for (final c in _taskControllers) c.dispose();
+    for (final c in _taskControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 

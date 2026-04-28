@@ -4,6 +4,7 @@ import '../models/app_store.dart';
 import 'main_shell.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_service.dart';
+import '../services/google_calendar_service.dart';
 import 'splash_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -136,6 +137,133 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                     const SizedBox(height: 24),
 
+                    // Секция Google Calendar
+                    _sectionTitle('ИНТЕГРАЦИИ'),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: GoogleCalendarService.instance.isSyncEnabled,
+                      builder: (context, syncEnabled, _) {
+                        return ValueListenableBuilder<String?>(
+                          valueListenable: GoogleCalendarService.instance.accountEmail,
+                          builder: (context, email, _) {
+                            return _settingsCard([
+                              _settingsSwitch(
+                                icon: Icons.calendar_month_rounded,
+                                color: AppColors.blue,
+                                title: 'Google Calendar',
+                                value: syncEnabled,
+                                onChanged: (v) async {
+                                  if (v) {
+                                    final ok = await GoogleCalendarService.instance.signIn();
+                                    if (!context.mounted) return;
+                                    if (ok) {
+                                      MainShell.of(context).showToast('Google Calendar подключен!');
+                                    } else {
+                                      MainShell.of(context).showToast('Не удалось подключить', isError: true);
+                                    }
+                                  } else {
+                                    await GoogleCalendarService.instance.signOut();
+                                    if (!context.mounted) return;
+                                    MainShell.of(context).showToast('Google Calendar отключен');
+                                  }
+                                  setState(() {});
+                                },
+                              ),
+                              if (syncEnabled && email != null) ...[
+                                _divider(),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.blueLight,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Icon(Icons.email_outlined, color: AppColors.blue, size: 20),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Аккаунт',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: AppColors.textMuted,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              email,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.textDark,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                _divider(),
+                                ValueListenableBuilder<bool>(
+                                  valueListenable: GoogleCalendarService.instance.isSyncing,
+                                  builder: (context, syncing, _) {
+                                    return InkWell(
+                                      onTap: syncing ? null : () => _syncAll(),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.successLight,
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: syncing
+                                                  ? SizedBox(
+                                                      width: 20,
+                                                      height: 20,
+                                                      child: CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: AppColors.success,
+                                                      ),
+                                                    )
+                                                  : Icon(Icons.sync_rounded, color: AppColors.success, size: 20),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Expanded(
+                                              child: Text(
+                                                syncing ? 'Синхронизация...' : 'Синхронизировать всё',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.textDark,
+                                                ),
+                                              ),
+                                            ),
+                                            Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ]);
+                          },
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 24),
+
                     // Секция Прочее
                     _sectionTitle('ПРОЧЕЕ'),
                     _settingsCard([
@@ -167,7 +295,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: () async {
                           await _authService.signOut();
                           await _localAuthService.signOut();
-                          if (!mounted) return;
+                          if (!context.mounted) return;
                           Navigator.of(context).pushAndRemoveUntil(
                             PageRouteBuilder(
                               pageBuilder: (_, __, ___) => const SplashScreen(),
@@ -202,6 +330,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _syncAll() async {
+    // Placeholder — actual habits list would come from HabitService stream
+    // For now, sync goals from AppStore
+    final gcal = GoogleCalendarService.instance;
+    final goals = AppStore.instance.goals;
+    gcal.isSyncing.value = true;
+
+    try {
+      for (final goal in goals) {
+        await gcal.syncGoalToCalendar(goal);
+      }
+      if (mounted) {
+        MainShell.of(context).showToast('Синхронизация завершена!');
+      }
+    } catch (e) {
+      if (mounted) {
+        MainShell.of(context).showToast('Ошибка синхронизации', isError: true);
+      }
+    } finally {
+      gcal.isSyncing.value = false;
+    }
   }
 
   Widget _sectionTitle(String title) {
@@ -252,7 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 20),
@@ -304,7 +455,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 20),

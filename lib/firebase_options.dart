@@ -53,6 +53,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '517842048800',
     projectId: 'goal-planner-c7cbf',
     storageBucket: 'goal-planner-c7cbf.firebasestorage.app',
+    androidClientId: '517842048800-no27nmpvnuvndcbjj9po318e5jm0mltm.apps.googleusercontent.com',
+    iosClientId: '517842048800-qon2mpume9i2pkbt6l9lhaomkhn7hemt.apps.googleusercontent.com',
     iosBundleId: 'com.example.zhasauApp',
   );
 
