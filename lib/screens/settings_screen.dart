@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/local_auth_service.dart';
 import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
+import '../services/push_notification_bridge.dart';
 import 'splash_screen.dart';
 import 'edit_profile_screen.dart';
 
@@ -327,6 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       width: double.infinity,
                       child: OutlinedButton(
                         onPressed: () async {
+                          await PushNotificationBridge.beforeSignOut();
                           await _authService.signOut();
                           await _localAuthService.signOut();
                           await AppStore.instance.resetSession();

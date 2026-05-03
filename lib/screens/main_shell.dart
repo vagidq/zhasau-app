@@ -14,6 +14,7 @@ import '../models/app_store.dart';
 import '../models/habit_model.dart';
 import '../services/habit_service.dart';
 import '../services/local_notification_service.dart';
+import '../services/push_notification_bridge.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -63,6 +64,12 @@ class MainShellState extends State<MainShell> {
     }
     try {
       await AppStore.instance.loadUserData();
+      final mobile = !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS);
+      if (mobile) {
+        await PushNotificationBridge.syncTokenToFirestore();
+      }
     } catch (e) {
       AppStore.instance.initializeEmptyProfile();
     }

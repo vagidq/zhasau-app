@@ -215,6 +215,23 @@ class UserService {
     await ref.set(updates, SetOptions(merge: true));
   }
 
+  /// Текущий FCM-токен устройства (для серверных рассылок).
+  Future<void> saveFcmTokenToProfile(String token) async {
+    final t = token.trim();
+    if (t.isEmpty) return;
+    await _firestore.collection('users').doc(userId).set({
+      'fcmToken': t,
+      'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> clearFcmTokenFromProfile() async {
+    await _firestore.collection('users').doc(userId).set({
+      'fcmToken': FieldValue.delete(),
+      'fcmTokenUpdatedAt': FieldValue.delete(),
+    }, SetOptions(merge: true));
+  }
+
   // In-app notifications (лента в приложении, не push ОС)
   CollectionReference<Map<String, dynamic>> get _notificationsCollection =>
       _firestore.collection('users').doc(userId).collection('notifications');

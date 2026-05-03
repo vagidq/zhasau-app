@@ -1,6 +1,6 @@
 rules_version = '2';
 // Схема приложения Zhasau (клиент Flutter):
-//   users/{uid}                    — профиль (name, bio, photoUrl, xp, …)
+//   users/{uid}                    — профиль (name, bio, photoUrl, xp, fcmToken, …)
 //   users/{uid}/goals/{goalId}
 //   users/{uid}/tasks/{taskId}
 //   users/{uid}/notifications/{id} — внутриигровая лента (type, title, body, read, createdAt, …)
