@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
@@ -42,6 +43,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       ),
     );
+  }
+
+  Future<void> _tryServerTestPush() async {
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('sendPushToSelf');
+      await callable.call(<String, dynamic>{
+        'title': 'Zhasau',
+        'body': 'Проверка серверного уведомления',
+      });
+      if (!mounted) return;
+      _toast('Запрос отправлен');
+    } catch (e) {
+      if (!mounted) return;
+      _toast(e.toString(), isError: true);
+    }
   }
 
   @override
@@ -308,6 +325,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: 'Поддержка и помощь',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
                         onTap: () => _toast('Раздел поддержки'),
+                      ),
+                      _divider(),
+                      _settingsItem(
+                        icon: Icons.cloud_upload_rounded,
+                        color: AppColors.blue,
+                        title: 'Проверить push с сервера',
+                        trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                        onTap: _tryServerTestPush,
                       ),
                       _divider(),
                       _settingsItem(
