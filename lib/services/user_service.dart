@@ -198,6 +198,7 @@ class UserService {
       'unlockedAchievements': <String>[],
       'highPriorityCompletions': 0,
       'completionsBeforeNine': 0,
+      'bio': '',
     });
   }
 

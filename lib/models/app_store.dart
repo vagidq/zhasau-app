@@ -22,6 +22,8 @@ class AppStore extends ChangeNotifier {
     id: '',
     name: 'Пользователь',
     email: null,
+    bio: '',
+    photoUrl: null,
     level: 1,
     xp: 0,
     coins: 0,
@@ -59,6 +61,8 @@ class AppStore extends ChangeNotifier {
       id: '',
       name: 'Пользователь',
       email: null,
+      bio: '',
+      photoUrl: null,
       level: 1,
       xp: 0,
       coins: 0,
@@ -112,6 +116,8 @@ class AppStore extends ChangeNotifier {
           id: _userService.userId,
           name: (data['name'] as String?) ?? 'Пользователь',
           email: data['email'] as String?,
+          bio: (data['bio'] as String?) ?? '',
+          photoUrl: data['photoUrl'] as String?,
           level: (data['level'] as num?)?.toInt() ?? 1,
           xp: (data['xp'] as num?)?.toInt() ?? 0,
           coins: (data['coins'] as num?)?.toInt() ?? 0,
@@ -478,6 +484,8 @@ class AppStore extends ChangeNotifier {
         'name': _userProfile.name,
         if (_userProfile.email != null && _userProfile.email!.isNotEmpty)
           'email': _userProfile.email,
+        'bio': _userProfile.bio,
+        'photoUrl': _nonEmptyStringOrNull(_userProfile.photoUrl),
         'level': _userProfile.level,
         'xp': _userProfile.xp,
         'coins': _userProfile.coins,
@@ -496,6 +504,34 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// Имя, «о себе» и фото (URL) — сохраняются в Firestore.
+  Future<void> saveProfileDisplay({
+    required String name,
+    required String bio,
+    String? photoUrl,
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty) {
+      throw ArgumentError('Имя не может быть пустым');
+    }
+    var b = bio.trim();
+    if (b.length > 280) b = b.substring(0, 280);
+    final trimmedName = n.length > 80 ? n.substring(0, 80) : n;
+    String? p = photoUrl?.trim();
+    if (p != null && p.isEmpty) p = null;
+    _userProfile.name = trimmedName;
+    _userProfile.bio = b;
+    _userProfile.photoUrl = p;
+    notifyListeners();
+    await _persistUserProfile();
+  }
+
+  static String? _nonEmptyStringOrNull(String? s) {
+    final t = s?.trim();
+    if (t == null || t.isEmpty) return null;
+    return t;
+  }
+
   // Method to initialize with mock data for testing
   void initializeMockData() {
     _goals.clear();
@@ -506,6 +542,8 @@ class AppStore extends ChangeNotifier {
       id: 'demo_user',
       name: 'Дамир',
       email: null,
+      bio: '',
+      photoUrl: null,
       level: 1,
       xp: 0,
       coins: 0,
@@ -620,6 +658,8 @@ class AppStore extends ChangeNotifier {
       id: 'demo_user',
       name: 'Пользователь',
       email: null,
+      bio: '',
+      photoUrl: null,
       level: 1,
       xp: 0,
       coins: 0,

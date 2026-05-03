@@ -7,6 +7,10 @@ class UserProfile {
   String name;
   /// Почта из Firestore / регистрации (не путать с Google Calendar).
   String? email;
+  /// Короткий текст «о себе» (Firestore `bio`).
+  String bio;
+  /// Ссылка на фото в профиле (Firestore). Если не задано — в UI можно показать фото аккаунта входа.
+  String? photoUrl;
   int level;
   int xp;
   final int xpPerLevel = 1000; // XP needed to level up
@@ -29,6 +33,8 @@ class UserProfile {
     required this.id,
     required this.name,
     this.email,
+    this.bio = '',
+    this.photoUrl,
     this.level = 1,
     this.xp = 0,
     this.coins = 0,
@@ -172,6 +178,8 @@ class UserProfile {
   UserProfile copyWith({
     String? name,
     String? email,
+    String? bio,
+    String? photoUrl,
     int? level,
     int? xp,
     int? coins,
@@ -189,6 +197,8 @@ class UserProfile {
       id: id,
       name: name ?? this.name,
       email: email ?? this.email,
+      bio: bio ?? this.bio,
+      photoUrl: photoUrl ?? this.photoUrl,
       level: level ?? this.level,
       xp: xp ?? this.xp,
       coins: coins ?? this.coins,
