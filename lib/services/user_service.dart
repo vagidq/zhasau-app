@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/goal_model.dart';
+import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
 
 class UserService {
@@ -195,6 +196,10 @@ class UserService {
       'completedTasks': 0,
       'streak': 0,
       'lastTaskCompletedDate': null,
+      'unlockedAchievements': <String>[],
+      'highPriorityCompletions': 0,
+      'completionsBeforeNine': 0,
+      'bio': '',
     });
   }
 
@@ -208,5 +213,51 @@ class UserService {
     final ref = _firestore.collection('users').doc(userId);
     // Ensure doc exists (update fails if missing)
     await ref.set(updates, SetOptions(merge: true));
+  }
+
+  // In-app notifications (лента в приложении, не push ОС)
+  CollectionReference<Map<String, dynamic>> get _notificationsCollection =>
+      _firestore.collection('users').doc(userId).collection('notifications');
+
+  Stream<List<InAppNotification>> watchInAppNotifications({int limit = 80}) {
+    return _notificationsCollection
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map(InAppNotification.fromDoc).toList(growable: false));
+  }
+
+  Future<void> addInAppNotification({
+    required String type,
+    required String title,
+    required String body,
+    String? achievementId,
+  }) async {
+    await _notificationsCollection.add({
+      'type': type,
+      'title': title,
+      'body': body,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      if (achievementId != null && achievementId.isNotEmpty)
+        'achievementId': achievementId,
+    });
+  }
+
+  Future<void> markInAppNotificationRead(String notificationId) async {
+    await _notificationsCollection.doc(notificationId).update({
+      'read': true,
+    });
+  }
+
+  Future<void> markAllInAppNotificationsRead() async {
+    final batch = _firestore.batch();
+    final snap =
+        await _notificationsCollection.where('read', isEqualTo: false).get();
+    for (final d in snap.docs) {
+      batch.update(d.reference, {'read': true});
+    }
+    await batch.commit();
   }
 }

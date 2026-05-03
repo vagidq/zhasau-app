@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import '../achievements/achievement_catalog.dart';
 import '../models/goal_model.dart';
+import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
 import '../services/google_calendar_service.dart';
@@ -21,6 +23,8 @@ class AppStore extends ChangeNotifier {
     id: '',
     name: 'Пользователь',
     email: null,
+    bio: '',
+    photoUrl: null,
     level: 1,
     xp: 0,
     coins: 0,
@@ -32,6 +36,11 @@ class AppStore extends ChangeNotifier {
   List<TaskModel> get tasks => List.unmodifiable(_tasks);
   UserProfile get userProfile => _userProfile;
 
+  List<InAppNotification> _notifications = const [];
+  List<InAppNotification> get notifications => List.unmodifiable(_notifications);
+  int get unreadNotificationCount =>
+      _notifications.where((n) => !n.read).length;
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
@@ -41,23 +50,29 @@ class AppStore extends ChangeNotifier {
   StreamSubscription<dynamic>? _userProfileSub;
   StreamSubscription<dynamic>? _goalsSub;
   StreamSubscription<dynamic>? _tasksSub;
+  StreamSubscription<List<InAppNotification>>? _notificationsSub;
 
   /// Сброс кэша и отписка от Firestore при выходе или перед сменой аккаунта.
   Future<void> resetSession() async {
     await _userProfileSub?.cancel();
     await _goalsSub?.cancel();
     await _tasksSub?.cancel();
+    await _notificationsSub?.cancel();
     _userProfileSub = null;
     _goalsSub = null;
     _tasksSub = null;
+    _notificationsSub = null;
 
     _goals.clear();
     _tasks.clear();
+    _notifications = const [];
     _hasProfile = false;
     _userProfile = UserProfile(
       id: '',
       name: 'Пользователь',
       email: null,
+      bio: '',
+      photoUrl: null,
       level: 1,
       xp: 0,
       coins: 0,
@@ -71,12 +86,15 @@ class AppStore extends ChangeNotifier {
     await _userProfileSub?.cancel();
     await _goalsSub?.cancel();
     await _tasksSub?.cancel();
+    await _notificationsSub?.cancel();
     _userProfileSub = null;
     _goalsSub = null;
     _tasksSub = null;
+    _notificationsSub = null;
 
     _goals.clear();
     _tasks.clear();
+    _notifications = const [];
 
     _isLoading = true;
     notifyListeners();
@@ -111,6 +129,8 @@ class AppStore extends ChangeNotifier {
           id: _userService.userId,
           name: (data['name'] as String?) ?? 'Пользователь',
           email: data['email'] as String?,
+          bio: (data['bio'] as String?) ?? '',
+          photoUrl: data['photoUrl'] as String?,
           level: (data['level'] as num?)?.toInt() ?? 1,
           xp: (data['xp'] as num?)?.toInt() ?? 0,
           coins: (data['coins'] as num?)?.toInt() ?? 0,
@@ -122,9 +142,26 @@ class AppStore extends ChangeNotifier {
           weeklyActivity: weeklyActivity,
           weeklyXp: weeklyXp,
           weeklyCoins: weeklyCoins,
+          unlockedAchievements: _parseStringIdList(data['unlockedAchievements']),
+          highPriorityCompletions:
+              (data['highPriorityCompletions'] as num?)?.toInt() ?? 0,
+          completionsBeforeNine:
+              (data['completionsBeforeNine'] as num?)?.toInt() ?? 0,
         );
         _hasProfile = true;
+        final newAchievements = _mergeNewAchievements();
+        if (newAchievements.isNotEmpty) {
+          unawaited(_persistAndAchievementNotifications(newAchievements));
+        }
         notifyListeners();
+      });
+
+      _notificationsSub =
+          _userService.watchInAppNotifications().listen((list) {
+        _notifications = list;
+        notifyListeners();
+      }, onError: (e, st) {
+        debugPrint('Notifications stream: $e\n$st');
       });
 
       _goalsSub = _userService.getGoals().listen((goals) {
@@ -273,8 +310,10 @@ class AppStore extends ChangeNotifier {
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
       _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
+      _bumpCompletionStatsForAchievements(task: updatedTask);
+      final newAchievements = _mergeNewAchievements();
       notifyListeners();
-      _persistUserProfile();
+      unawaited(_persistAndAchievementNotifications(newAchievements));
     } else if (wasCompleted && !isNowCompleted) {
       // Remove rewards
       if (!updatedTask.isXp && updatedTask.reward > 0) {
@@ -284,6 +323,10 @@ class AppStore extends ChangeNotifier {
       if (updatedTask.isXp && updatedTask.reward > 0) {
         _userProfile.xp = (_userProfile.xp - updatedTask.reward).toInt();
         if (_userProfile.xp < 0) _userProfile.xp = 0;
+      }
+      if (oldTask.tag?.type == TagType.high &&
+          _userProfile.highPriorityCompletions > 0) {
+        _userProfile.highPriorityCompletions -= 1;
       }
       _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
       if (_userProfile.completedTasks > 0) _userProfile.completedTasks -= 1;
@@ -379,8 +422,10 @@ class AppStore extends ChangeNotifier {
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
       _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
+      _bumpCompletionStatsForAchievements(task: task);
+      final newAchievements = _mergeNewAchievements();
       notifyListeners(); // update UI (coins/XP) immediately
-      _persistUserProfile();
+      unawaited(_persistAndAchievementNotifications(newAchievements));
     }
 
     await deleteTask(task.id);
@@ -419,8 +464,95 @@ class AppStore extends ChangeNotifier {
     _userProfile.incrementCompletedTasks();
     _userProfile.updateStreak();
     _userProfile.incrementWeeklyActivity(xp: xpReward, coins: coinReward);
-    await _persistUserProfile();
+    _bumpCompletionStatsForAchievements(task: null);
+    final newAchievements = _mergeNewAchievements();
+    await _persistAndAchievementNotifications(newAchievements);
     notifyListeners();
+  }
+
+  List<String> _parseStringIdList(dynamic raw) {
+    if (raw is! List) return [];
+    return raw
+        .map((e) => e.toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  void _bumpCompletionStatsForAchievements({TaskModel? task}) {
+    final now = DateTime.now();
+    if (now.hour < 9) {
+      _userProfile.completionsBeforeNine += 1;
+    }
+    if (task != null && task.tag?.type == TagType.high) {
+      _userProfile.highPriorityCompletions += 1;
+    }
+  }
+
+  List<String> _mergeNewAchievements() {
+    final newIds = newlyUnlockedAchievementIds(_userProfile);
+    if (newIds.isEmpty) return [];
+    final merged = <String>{
+      ..._userProfile.unlockedAchievements,
+      ...newIds,
+    }.toList()
+      ..sort();
+    _userProfile.unlockedAchievements = merged;
+    return newIds;
+  }
+
+  Future<void> _persistAndAchievementNotifications(
+    List<String> newAchievementIds,
+  ) async {
+    try {
+      await _persistUserProfile();
+      if (newAchievementIds.isEmpty) return;
+      await _recordAchievementNotifications(newAchievementIds);
+    } catch (e, st) {
+      debugPrint('persist/achievement notify: $e\n$st');
+    }
+  }
+
+  Future<void> _recordAchievementNotifications(
+    List<String> achievementIds,
+  ) async {
+    if (achievementIds.isEmpty) return;
+    try {
+      for (final id in achievementIds) {
+        AchievementItem? item;
+        for (final a in kAchievementCatalog) {
+          if (a.id == id) {
+            item = a;
+            break;
+          }
+        }
+        if (item == null) continue;
+        final label = item.label.replaceAll('\n', ' ');
+        await _userService.addInAppNotification(
+          type: InAppNotificationTypes.achievement,
+          title: 'Новое достижение',
+          body: '«$label». ${item.description}',
+          achievementId: id,
+        );
+      }
+    } catch (e, st) {
+      debugPrint('Achievement notification: $e\n$st');
+    }
+  }
+
+  Future<void> markInAppNotificationRead(String notificationId) async {
+    try {
+      await _userService.markInAppNotificationRead(notificationId);
+    } catch (e) {
+      debugPrint('markInAppNotificationRead: $e');
+    }
+  }
+
+  Future<void> markAllInAppNotificationsRead() async {
+    try {
+      await _userService.markAllInAppNotificationsRead();
+    } catch (e) {
+      debugPrint('markAllInAppNotificationsRead: $e');
+    }
   }
 
   Future<void> _persistUserProfile() async {
@@ -429,6 +561,8 @@ class AppStore extends ChangeNotifier {
         'name': _userProfile.name,
         if (_userProfile.email != null && _userProfile.email!.isNotEmpty)
           'email': _userProfile.email,
+        'bio': _userProfile.bio,
+        'photoUrl': _nonEmptyStringOrNull(_userProfile.photoUrl),
         'level': _userProfile.level,
         'xp': _userProfile.xp,
         'coins': _userProfile.coins,
@@ -438,10 +572,41 @@ class AppStore extends ChangeNotifier {
         'weeklyActivity': _userProfile.weeklyActivity,
         'weeklyXp': _userProfile.weeklyXp,
         'weeklyCoins': _userProfile.weeklyCoins,
+        'unlockedAchievements': _userProfile.unlockedAchievements,
+        'highPriorityCompletions': _userProfile.highPriorityCompletions,
+        'completionsBeforeNine': _userProfile.completionsBeforeNine,
       });
     } catch (e) {
       debugPrint('Error persisting user profile: $e');
     }
+  }
+
+  /// Имя, «о себе» и фото (URL) — сохраняются в Firestore.
+  Future<void> saveProfileDisplay({
+    required String name,
+    required String bio,
+    String? photoUrl,
+  }) async {
+    final n = name.trim();
+    if (n.isEmpty) {
+      throw ArgumentError('Имя не может быть пустым');
+    }
+    var b = bio.trim();
+    if (b.length > 280) b = b.substring(0, 280);
+    final trimmedName = n.length > 80 ? n.substring(0, 80) : n;
+    String? p = photoUrl?.trim();
+    if (p != null && p.isEmpty) p = null;
+    _userProfile.name = trimmedName;
+    _userProfile.bio = b;
+    _userProfile.photoUrl = p;
+    notifyListeners();
+    await _persistUserProfile();
+  }
+
+  static String? _nonEmptyStringOrNull(String? s) {
+    final t = s?.trim();
+    if (t == null || t.isEmpty) return null;
+    return t;
   }
 
   // Method to initialize with mock data for testing
@@ -454,6 +619,8 @@ class AppStore extends ChangeNotifier {
       id: 'demo_user',
       name: 'Дамир',
       email: null,
+      bio: '',
+      photoUrl: null,
       level: 1,
       xp: 0,
       coins: 0,
@@ -568,6 +735,8 @@ class AppStore extends ChangeNotifier {
       id: 'demo_user',
       name: 'Пользователь',
       email: null,
+      bio: '',
+      photoUrl: null,
       level: 1,
       xp: 0,
       coins: 0,

@@ -7,6 +7,7 @@ import '../services/local_auth_service.dart';
 import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
 import 'splash_screen.dart';
+import 'edit_profile_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -118,7 +119,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             AppStore.instance.userProfile.email!,
                         ].join('\n'),
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => _toast('Настройки профиля'),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const EditProfileScreen(),
+                            ),
+                          );
+                        },
                       ),
                       _divider(),
                       _settingsItem(

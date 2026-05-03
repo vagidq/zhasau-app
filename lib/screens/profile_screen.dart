@@ -1,6 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../achievements/achievement_catalog.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
+import 'edit_profile_screen.dart';
 import 'settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -27,6 +30,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {});
   }
 
+  Widget _resolveAvatarWidget() {
+    final url = () {
+      final user = AppStore.instance.userProfile;
+      final p = user.photoUrl?.trim();
+      if (p != null && p.isNotEmpty) return p;
+      final a = FirebaseAuth.instance.currentUser?.photoURL;
+      if (a != null && a.isNotEmpty) return a;
+      return null;
+    }();
+    if (url != null) {
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        width: 102,
+        height: 102,
+        errorBuilder: (_, __, ___) => CircleAvatar(
+          backgroundColor: AppColors.primaryLight,
+          radius: 51,
+          child: Icon(Icons.person, color: AppColors.primary, size: 50),
+        ),
+      );
+    }
+    return CircleAvatar(
+      backgroundColor: AppColors.primaryLight,
+      radius: 51,
+      child: Icon(Icons.person, color: AppColors.primary, size: 50),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = AppStore.instance.userProfile;
@@ -39,36 +71,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (maxActivity == 0) return 0.0;
       return activity[i] / maxActivity;
     });
-    final achievements = [
-      _Achievement(
-          icon: Icons.wb_sunny_rounded,
-          label: 'Ранняя\nпташка',
-          description: 'Выполнить 5 задач до 9:00 утра',
-          color: AppColors.warningLight,
-          iconColor: AppColors.warning,
-          locked: false),
-      _Achievement(
-          icon: Icons.directions_run_rounded,
-          label: 'Марафонец',
-          description: 'Поддерживать серию 7 дней подряд',
-          color: AppColors.primaryLight,
-          iconColor: AppColors.primary,
-          locked: false),
-      _Achievement(
-          icon: Icons.workspace_premium_rounded,
-          label: 'Эксперт',
-          description: 'Достигнуть 10 уровня пользователя',
-          color: AppColors.blueLight,
-          iconColor: AppColors.blue,
-          locked: false),
-      _Achievement(
-          icon: Icons.lock_rounded,
-          label: 'Мастер',
-          description: 'Завершить 100 задач с высоким приоритетом',
-          color: AppColors.border,
-          iconColor: AppColors.textLight,
-          locked: true),
-    ];
+    final unlocked = user.unlockedAchievements.toSet();
+    final achievements = kAchievementCatalog
+        .map(
+          (def) {
+            final isUnlocked = unlocked.contains(def.id);
+            var color = def.color;
+            var iconColor = def.iconColor;
+            if (def.id == AchievementIds.priorityMaster && isUnlocked) {
+              color = AppColors.warningLight;
+              iconColor = AppColors.warning;
+            }
+            return _Achievement(
+            icon: !isUnlocked &&
+                    def.id == AchievementIds.priorityMaster
+                ? Icons.lock_rounded
+                : def.icon,
+            label: def.label,
+            description: def.description,
+            color: color,
+            iconColor: iconColor,
+            locked: !isUnlocked,
+          );
+          },
+        )
+        .toList();
 
     return Scaffold(
       backgroundColor: AppColors.bgMain,
@@ -77,7 +104,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             // Header
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              padding: const EdgeInsets.fromLTRB(12, 16, 20, 0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -87,30 +114,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).push(
-                      PageRouteBuilder(
-                        pageBuilder: (_, __, ___) => const SettingsScreen(),
-                        transitionsBuilder: (_, anim, __, child) =>
-                            SlideTransition(
-                          position: Tween(
-                                  begin: const Offset(1, 0), end: Offset.zero)
-                              .animate(CurvedAnimation(
-                                  parent: anim, curve: Curves.easeOutCubic)),
-                          child: child,
-                        ),
-                      ),
-                    ),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Material(
                         color: AppColors.primaryLight,
                         borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => Navigator.of(context).push(
+                            PageRouteBuilder(
+                              pageBuilder: (_, __, ___) =>
+                                  const EditProfileScreen(),
+                              transitionsBuilder:
+                                  (_, anim, __, child) => SlideTransition(
+                                position: Tween(
+                                        begin: const Offset(1, 0),
+                                        end: Offset.zero)
+                                    .animate(CurvedAnimation(
+                                        parent: anim,
+                                        curve: Curves.easeOutCubic)),
+                                child: child,
+                              ),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Icon(Icons.edit_rounded,
+                                color: AppColors.primary, size: 22),
+                          ),
+                        ),
                       ),
-                      child: Icon(Icons.settings_rounded,
-                          color: AppColors.primary, size: 22),
-                    ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).push(
+                          PageRouteBuilder(
+                            pageBuilder: (_, __, ___) =>
+                                const SettingsScreen(),
+                            transitionsBuilder:
+                                (_, anim, __, child) => SlideTransition(
+                              position: Tween(
+                                      begin: const Offset(1, 0),
+                                      end: Offset.zero)
+                                  .animate(CurvedAnimation(
+                                      parent: anim,
+                                      curve: Curves.easeOutCubic)),
+                              child: child,
+                            ),
+                          ),
+                        ),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.settings_rounded,
+                              color: AppColors.primary, size: 22),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -141,15 +205,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           padding: const EdgeInsets.all(4),
                           child: ClipOval(
-                            child: Image.network(
-                              'https://i.pravatar.cc/150?img=11',
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => CircleAvatar(
-                                backgroundColor: AppColors.primaryLight,
-                                child: Icon(Icons.person,
-                                    color: AppColors.primary, size: 50),
-                              ),
-                            ),
+                            child: _resolveAvatarWidget(),
                           ),
                         ),
                         Positioned(
@@ -184,13 +240,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text('Опытный планировщик',
+                    Text(
+                      user.plannerRankTitle,
                       style: TextStyle(
                         color: AppColors.primaryDark,
                         fontWeight: FontWeight.w500,
                         fontSize: 15,
                       ),
                     ),
+                    if (user.bio.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          user.bio.trim(),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            height: 1.35,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
 
                     const SizedBox(height: 24),
 
