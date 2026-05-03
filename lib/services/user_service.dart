@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/goal_model.dart';
+import '../models/goal_xp_rules.dart';
 import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
+import '../models/user_profile.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -32,6 +34,9 @@ class UserService {
       'deadline': goal.deadline?.toIso8601String(),
       'startDate': goal.startDate.toIso8601String(),
       if (goal.calendarEventId != null) 'calendarEventId': goal.calendarEventId,
+      'xpTaskPool': goal.xpTaskPool,
+      'xpCompletionBonus': goal.xpCompletionBonus,
+      'completionBonusGranted': goal.completionBonusGranted,
     });
   }
 
@@ -47,6 +52,9 @@ class UserService {
       'deadline': goal.deadline?.toIso8601String(),
       'startDate': goal.startDate.toIso8601String(),
       'calendarEventId': goal.calendarEventId,
+      'xpTaskPool': goal.xpTaskPool,
+      'xpCompletionBonus': goal.xpCompletionBonus,
+      'completionBonusGranted': goal.completionBonusGranted,
     });
   }
 
@@ -87,6 +95,13 @@ class UserService {
           deadline: data['deadline'] != null ? DateTime.parse(data['deadline']) : null,
           startDate: data['startDate'] != null ? DateTime.parse(data['startDate']) : null,
           calendarEventId: data['calendarEventId'] as String?,
+          xpTaskPool: (data['xpTaskPool'] as num?)?.toInt() ??
+              GoalXpRules.defaultTaskPool,
+          xpCompletionBonus:
+              (data['xpCompletionBonus'] as num?)?.toInt() ??
+                  GoalXpRules.defaultCompletionBonus,
+          completionBonusGranted:
+              data['completionBonusGranted'] as bool? ?? false,
         );
       }).toList();
     });
@@ -110,6 +125,8 @@ class UserService {
       if (task.scheduledAt != null)
         'scheduledAt': task.scheduledAt!.toIso8601String(),
       if (task.calendarEventId != null) 'calendarEventId': task.calendarEventId,
+      if (task.completedAt != null)
+        'completedAt': Timestamp.fromDate(task.completedAt!),
     });
   }
 
@@ -128,6 +145,11 @@ class UserService {
     }
     if (task.calendarEventId != null) {
       patch['calendarEventId'] = task.calendarEventId;
+    }
+    if (task.completedAt != null) {
+      patch['completedAt'] = Timestamp.fromDate(task.completedAt!);
+    } else {
+      patch['completedAt'] = FieldValue.delete();
     }
     await _tasksCollection.doc(task.id).update(patch);
   }
@@ -168,6 +190,14 @@ class UserService {
           scheduledAt = scheduledRaw.toDate();
         }
 
+        DateTime? completedAt;
+        final completedRaw = data['completedAt'];
+        if (completedRaw is Timestamp) {
+          completedAt = completedRaw.toDate();
+        } else if (completedRaw is String) {
+          completedAt = DateTime.tryParse(completedRaw);
+        }
+
         return TaskModel(
           id: data['id'] ?? doc.id,
           title: data['title'] ?? '',
@@ -179,6 +209,7 @@ class UserService {
           isXp: data['isXp'] ?? true,
           tag: tag,
           completed: data['completed'] ?? false,
+          completedAt: completedAt,
         );
       }).toList();
     });
@@ -196,7 +227,12 @@ class UserService {
       'completedTasks': 0,
       'streak': 0,
       'lastTaskCompletedDate': null,
+      'weeklyActivity': <int>[0, 0, 0, 0, 0, 0, 0],
+      'weeklyXp': <int>[0, 0, 0, 0, 0, 0, 0],
+      'weeklyCoins': <int>[0, 0, 0, 0, 0, 0, 0],
+      'weeklyChartWeekMonday': UserProfile.mondayKeyFor(DateTime.now()),
       'unlockedAchievements': <String>[],
+      'shopHiddenBuiltinIds': <String>[],
       'highPriorityCompletions': 0,
       'completionsBeforeNine': 0,
       'bio': '',

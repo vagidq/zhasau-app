@@ -264,38 +264,90 @@ class _ToastWidgetState extends State<_ToastWidget>
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      bottom: 90,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: ScaleTransition(
-          scale: _anim,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            decoration: BoxDecoration(
-              color: widget.isError ? AppColors.red : AppColors.success,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: (widget.isError ? AppColors.red : AppColors.success)
-                      .withValues(alpha: 0.4),
-                  blurRadius: 15,
-                  offset: const Offset(0, 4),
+    return ListenableBuilder(
+      listenable: AppColors.isDarkMode,
+      builder: (context, _) {
+        final isErr = widget.isError;
+        final Color bg;
+        final Color fg;
+        final Color accent;
+        final IconData glyph;
+        if (isErr) {
+          bg = AppColors.redLight;
+          fg = AppColors.red;
+          accent = AppColors.red;
+          glyph = Icons.info_outline_rounded;
+        } else {
+          bg = AppColors.bgWhite;
+          fg = AppColors.textDark;
+          accent = AppColors.primary;
+          glyph = Icons.auto_awesome_rounded;
+        }
+        final maxW = MediaQuery.sizeOf(context).width - 40;
+        return Positioned(
+          bottom: 90,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: ScaleTransition(
+              scale: _anim,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxW),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: accent.withValues(alpha: isErr ? 0.35 : 0.22),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.07),
+                        blurRadius: 28,
+                        offset: const Offset(0, 10),
+                      ),
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.12),
+                        blurRadius: 20,
+                        spreadRadius: -4,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 13,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(glyph, size: 22, color: accent),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            widget.message,
+                            textAlign: TextAlign.start,
+                            style: TextStyle(
+                              color: fg,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              height: 1.25,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
-            child: Text(
-              widget.message,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

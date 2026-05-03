@@ -287,6 +287,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               fontSize: 16,
                             ),
                           ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Пн–Вс текущей календарной недели (с понедельника)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.3,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
                           const SizedBox(height: 16),
                           SizedBox(
                             height: 100,

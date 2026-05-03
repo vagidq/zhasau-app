@@ -24,6 +24,9 @@ class HabitService {
 
   /// Returns [habit] with [HabitModel.id] set to the new Firestore document id.
   Future<HabitModel> addHabit(HabitModel habit) async {
+    if (habit.title.trim().isEmpty) {
+      throw ArgumentError('Введите название задачи');
+    }
     final doc = await _habitsRefRequire().add(habit.toMap());
     return habit.copyWith(id: doc.id);
   }

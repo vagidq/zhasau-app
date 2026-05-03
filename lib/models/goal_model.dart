@@ -13,6 +13,15 @@ class GoalModel {
   final DateTime startDate;
   final String? calendarEventId;
 
+  /// Пул XP, делимый между всеми задачами цели ([GoalXpRules.defaultTaskPool] по умолчанию).
+  final int xpTaskPool;
+
+  /// Бонус XP за выполнение всех задач цели; хранится в Firestore.
+  final int xpCompletionBonus;
+
+  /// Выдан ли бонус за «все задачи выполнены» (сбрасывается при откате или новой задаче).
+  final bool completionBonusGranted;
+
   GoalModel({
     required this.id,
     required this.title,
@@ -25,6 +34,9 @@ class GoalModel {
     this.deadline,
     DateTime? startDate,
     this.calendarEventId,
+    this.xpTaskPool = 500,
+    this.xpCompletionBonus = 150,
+    this.completionBonusGranted = false,
   }) : startDate = startDate ?? DateTime.now();
 
   /// Ключ для вкладок «Здоровье» / «Образование» … (строго в нижнем регистре).
@@ -66,6 +78,9 @@ class GoalModel {
     DateTime? deadline,
     DateTime? startDate,
     String? calendarEventId,
+    int? xpTaskPool,
+    int? xpCompletionBonus,
+    bool? completionBonusGranted,
   }) {
     return GoalModel(
       id: id ?? this.id,
@@ -79,6 +94,10 @@ class GoalModel {
       deadline: deadline ?? this.deadline,
       startDate: startDate ?? this.startDate,
       calendarEventId: calendarEventId ?? this.calendarEventId,
+      xpTaskPool: xpTaskPool ?? this.xpTaskPool,
+      xpCompletionBonus: xpCompletionBonus ?? this.xpCompletionBonus,
+      completionBonusGranted:
+          completionBonusGranted ?? this.completionBonusGranted,
     );
   }
 }

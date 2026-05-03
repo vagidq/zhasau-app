@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../achievements/achievement_catalog.dart';
 import '../models/goal_model.dart';
+import '../models/goal_xp_rules.dart';
 import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
@@ -30,6 +31,8 @@ class AppStore extends ChangeNotifier {
     coins: 0,
     completedTasks: 0,
     streak: 0,
+    shopHiddenBuiltinIds: const [],
+    weeklyChartWeekMonday: UserProfile.mondayKeyFor(DateTime.now()),
   );
 
   List<GoalModel> get goals => List.unmodifiable(_goals);
@@ -78,6 +81,8 @@ class AppStore extends ChangeNotifier {
       coins: 0,
       completedTasks: 0,
       streak: 0,
+      shopHiddenBuiltinIds: const [],
+      weeklyChartWeekMonday: UserProfile.mondayKeyFor(DateTime.now()),
     );
     notifyListeners();
   }
@@ -142,16 +147,23 @@ class AppStore extends ChangeNotifier {
           weeklyActivity: weeklyActivity,
           weeklyXp: weeklyXp,
           weeklyCoins: weeklyCoins,
+          weeklyChartWeekMonday: data['weeklyChartWeekMonday'] as String?,
           unlockedAchievements: _parseStringIdList(data['unlockedAchievements']),
+          shopHiddenBuiltinIds:
+              _parseStringIdList(data['shopHiddenBuiltinIds']),
           highPriorityCompletions:
               (data['highPriorityCompletions'] as num?)?.toInt() ?? 0,
           completionsBeforeNine:
               (data['completionsBeforeNine'] as num?)?.toInt() ?? 0,
         );
+        final weeklyRolled = _userProfile.ensureWeeklyBucketsForCurrentWeek();
         _hasProfile = true;
         final newAchievements = _mergeNewAchievements();
         if (newAchievements.isNotEmpty) {
           unawaited(_persistAndAchievementNotifications(newAchievements));
+        }
+        if (weeklyRolled) {
+          unawaited(_persistUserProfile());
         }
         notifyListeners();
       });
@@ -203,6 +215,93 @@ class AppStore extends ChangeNotifier {
   int tasksLeft(String goalId) {
     final goalTasks = getTasksForGoal(goalId);
     return goalTasks.where((t) => !t.completed).length;
+  }
+
+  /// Текущий XP за задачу цели: пул из [GoalModel.xpTaskPool] / число задач × приоритет.
+  int xpRewardForGoalTask(TaskModel task) {
+    final gid = task.goalId;
+    if (gid == null || gid.isEmpty) return task.reward.toInt();
+    final goalIdx = _goals.indexWhere((g) => g.id == gid);
+    if (goalIdx == -1) return task.reward.toInt();
+    final pool = _goals[goalIdx].xpTaskPool;
+    final n = getTasksForGoal(gid).length;
+    if (n == 0) return task.reward.toInt();
+    return GoalXpRules.taskXp(pool: pool, taskCount: n, tag: task.tag);
+  }
+
+  Future<void> recalculateGoalTaskRewards(String goalId) async {
+    final goalIdx = _goals.indexWhere((g) => g.id == goalId);
+    if (goalIdx == -1) return;
+    final pool = _goals[goalIdx].xpTaskPool;
+    final tasks = getTasksForGoal(goalId);
+    final n = tasks.length;
+    if (n == 0) return;
+    for (final t in tasks) {
+      if (t.completed) continue;
+      final xp = GoalXpRules.taskXp(pool: pool, taskCount: n, tag: t.tag);
+      if (t.reward == xp) continue;
+      await updateTask(t.copyWith(reward: xp));
+    }
+  }
+
+  Future<void> _revokeGoalCompletionBonusIfGoalHadBonus(String goalId) async {
+    final gIdx = _goals.indexWhere((g) => g.id == goalId);
+    if (gIdx == -1) return;
+    final meta = _goals[gIdx];
+    if (!meta.completionBonusGranted) return;
+    final b = meta.xpCompletionBonus;
+    if (b <= 0) return;
+    _userProfile.xp = (_userProfile.xp - b);
+    if (_userProfile.xp < 0) _userProfile.xp = 0;
+    _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
+    final cleared = meta.copyWith(completionBonusGranted: false);
+    _goals[gIdx] = cleared;
+    notifyListeners();
+    try {
+      await _userService.updateGoal(cleared);
+      await _persistUserProfile();
+    } catch (e, st) {
+      debugPrint('revoke goal bonus: $e\n$st');
+    }
+  }
+
+  Future<void> _grantGoalCompletionBonusIfAllDone(
+    String goalId,
+    TaskModel updatedTask,
+  ) async {
+    final tasksInGoal = getTasksForGoal(goalId);
+    final allDone = tasksInGoal.every(
+      (t) => t.id == updatedTask.id ? updatedTask.completed : t.completed,
+    );
+    if (!allDone) return;
+
+    final gIdx = _goals.indexWhere((g) => g.id == goalId);
+    if (gIdx == -1) return;
+    final meta = _goals[gIdx];
+    if (meta.completionBonusGranted || meta.xpCompletionBonus <= 0) return;
+
+    final bonus = meta.xpCompletionBonus;
+    final title = meta.title;
+    _userProfile.addXp(bonus);
+    _userProfile.incrementWeeklyActivity(xp: bonus, coins: 0);
+    _bumpCompletionStatsForAchievements(task: null, at: DateTime.now());
+    final newAchievements = _mergeNewAchievements();
+
+    final marked = meta.copyWith(completionBonusGranted: true);
+    _goals[gIdx] = marked;
+    notifyListeners();
+
+    try {
+      await _userService.updateGoal(marked);
+      await _persistAndAchievementNotifications(newAchievements);
+      await _userService.addInAppNotification(
+        type: InAppNotificationTypes.goalBonus,
+        title: 'Цель достигнута!',
+        body: '«$title»: бонус +$bonus XP за выполнение всех задач.',
+      );
+    } catch (e, st) {
+      debugPrint('grant goal bonus: $e\n$st');
+    }
   }
 
   Future<void> addGoal(GoalModel goal) async {
@@ -269,7 +368,10 @@ class AppStore extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> addTask(TaskModel task) async {
+  Future<void> addTask(TaskModel task, {bool rebalanceGoalRewards = true}) async {
+    if (task.goalId != null && task.goalId!.isNotEmpty) {
+      await _revokeGoalCompletionBonusIfGoalHadBonus(task.goalId!);
+    }
     _tasks.add(task);
     notifyListeners();
 
@@ -277,6 +379,9 @@ class AppStore extends ChangeNotifier {
       await _userService.addTask(task);
       if (task.goalId != null && task.goalId!.isNotEmpty) {
         _scheduleGoalTaskCalendarSync(task.id);
+        if (rebalanceGoalRewards) {
+          await recalculateGoalTaskRewards(task.goalId!);
+        }
       }
     } catch (e) {
       _tasks.remove(task);
@@ -293,35 +398,57 @@ class AppStore extends ChangeNotifier {
     final wasCompleted = oldTask.completed;
     final isNowCompleted = updatedTask.completed;
 
-    // Handle rewards when task is marked as completed
+    var taskForStore = updatedTask;
+
     if (!wasCompleted && isNowCompleted) {
+      final completionTime = DateTime.now();
       int gainedXp = 0;
       int gainedCoins = 0;
 
-      // Coins reward
-      if (!updatedTask.isXp && updatedTask.reward > 0) {
-        gainedCoins += updatedTask.reward.toInt();
-        _userProfile.addCoins(updatedTask.reward.toInt());
+      if (updatedTask.goalId != null &&
+          updatedTask.goalId!.isNotEmpty &&
+          updatedTask.isXp) {
+        final computed = xpRewardForGoalTask(updatedTask);
+        if (computed != updatedTask.reward.toInt()) {
+          taskForStore = updatedTask.copyWith(reward: computed);
+        }
       }
-      if (updatedTask.isXp && updatedTask.reward > 0) {
-        gainedXp += updatedTask.reward.toInt();
-        _userProfile.addXp(updatedTask.reward.toInt());
+
+      if (!taskForStore.isXp && taskForStore.reward > 0) {
+        gainedCoins += taskForStore.reward.toInt();
+        _userProfile.addCoins(taskForStore.reward.toInt());
+      }
+      if (taskForStore.isXp && taskForStore.reward > 0) {
+        gainedXp += taskForStore.reward.toInt();
+        _userProfile.addXp(taskForStore.reward.toInt());
       }
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
       _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
-      _bumpCompletionStatsForAchievements(task: updatedTask);
+      _bumpCompletionStatsForAchievements(
+        task: updatedTask,
+        at: completionTime,
+      );
       final newAchievements = _mergeNewAchievements();
       notifyListeners();
       unawaited(_persistAndAchievementNotifications(newAchievements));
+      if (taskForStore.goalId != null && taskForStore.goalId!.isNotEmpty) {
+        unawaited(_grantGoalCompletionBonusIfAllDone(
+          taskForStore.goalId!,
+          taskForStore,
+        ));
+      }
+      taskForStore = taskForStore.copyWith(completedAt: completionTime);
     } else if (wasCompleted && !isNowCompleted) {
-      // Remove rewards
-      if (!updatedTask.isXp && updatedTask.reward > 0) {
-        _userProfile.coins = (_userProfile.coins - updatedTask.reward).toInt();
+      if (oldTask.goalId != null && oldTask.goalId!.isNotEmpty) {
+        await _revokeGoalCompletionBonusIfGoalHadBonus(oldTask.goalId!);
+      }
+      if (!oldTask.isXp && oldTask.reward > 0) {
+        _userProfile.coins = (_userProfile.coins - oldTask.reward).toInt();
         if (_userProfile.coins < 0) _userProfile.coins = 0;
       }
-      if (updatedTask.isXp && updatedTask.reward > 0) {
-        _userProfile.xp = (_userProfile.xp - updatedTask.reward).toInt();
+      if (oldTask.isXp && oldTask.reward > 0) {
+        _userProfile.xp = (_userProfile.xp - oldTask.reward).toInt();
         if (_userProfile.xp < 0) _userProfile.xp = 0;
       }
       if (oldTask.tag?.type == TagType.high &&
@@ -330,17 +457,29 @@ class AppStore extends ChangeNotifier {
       }
       _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
       if (_userProfile.completedTasks > 0) _userProfile.completedTasks -= 1;
+      final xpRev = oldTask.isXp ? oldTask.reward.toInt() : 0;
+      final coinRev = oldTask.isXp ? 0 : oldTask.reward.toInt();
+      if (xpRev > 0 || coinRev > 0) {
+        _userProfile.decrementWeeklyActivity(xp: xpRev, coins: coinRev);
+      }
+      final ca = oldTask.completedAt;
+      if (ca != null &&
+          ca.hour < 9 &&
+          _userProfile.completionsBeforeNine > 0) {
+        _userProfile.completionsBeforeNine -= 1;
+      }
       notifyListeners();
       _persistUserProfile();
+      taskForStore = updatedTask.copyWith(clearCompletedAt: true);
     }
 
-    _tasks[index] = updatedTask;
+    _tasks[index] = taskForStore;
     notifyListeners();
 
     try {
-      await _userService.updateTask(updatedTask);
-      if (updatedTask.goalId != null && updatedTask.goalId!.isNotEmpty) {
-        _scheduleGoalTaskCalendarSync(updatedTask.id);
+      await _userService.updateTask(taskForStore);
+      if (taskForStore.goalId != null && taskForStore.goalId!.isNotEmpty) {
+        _scheduleGoalTaskCalendarSync(taskForStore.id);
       }
     } catch (e) {
       _tasks[index] = oldTask;
@@ -422,7 +561,8 @@ class AppStore extends ChangeNotifier {
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
       _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
-      _bumpCompletionStatsForAchievements(task: task);
+      final completionTime = DateTime.now();
+      _bumpCompletionStatsForAchievements(task: task, at: completionTime);
       final newAchievements = _mergeNewAchievements();
       notifyListeners(); // update UI (coins/XP) immediately
       unawaited(_persistAndAchievementNotifications(newAchievements));
@@ -436,6 +576,11 @@ class AppStore extends ChangeNotifier {
     if (taskIndex == -1) return;
 
     final task = _tasks[taskIndex];
+    final gid = task.goalId;
+
+    if (gid != null && gid.isNotEmpty) {
+      await _revokeGoalCompletionBonusIfGoalHadBonus(gid);
+    }
 
     await _deleteCalendarEventIfAny(task.calendarEventId);
 
@@ -444,6 +589,9 @@ class AppStore extends ChangeNotifier {
 
     try {
       await _userService.deleteTask(taskId);
+      if (gid != null && gid.isNotEmpty) {
+        await recalculateGoalTaskRewards(gid);
+      }
     } catch (e) {
       _tasks.insert(taskIndex, task);
       notifyListeners();
@@ -456,7 +604,12 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> completeHabitTask({int xpReward = 10, int coinReward = 0}) async {
+  Future<void> completeHabitTask({
+    int xpReward = 10,
+    int coinReward = 0,
+    DateTime? statsAt,
+  }) async {
+    final when = statsAt ?? DateTime.now();
     _userProfile.addXp(xpReward);
     if (coinReward > 0) {
       _userProfile.addCoins(coinReward);
@@ -464,9 +617,37 @@ class AppStore extends ChangeNotifier {
     _userProfile.incrementCompletedTasks();
     _userProfile.updateStreak();
     _userProfile.incrementWeeklyActivity(xp: xpReward, coins: coinReward);
-    _bumpCompletionStatsForAchievements(task: null);
+    _bumpCompletionStatsForAchievements(task: null, at: when);
     final newAchievements = _mergeNewAchievements();
     await _persistAndAchievementNotifications(newAchievements);
+    notifyListeners();
+  }
+
+  /// Снятие отметки с привычки после того, как награда уже начислена ([completeHabitTask] / подтверждение с SnackBar).
+  Future<void> revertHabitCompletionRewards({
+    required int xpReward,
+    required int coinReward,
+    DateTime? completionRecordedAt,
+  }) async {
+    if (xpReward > 0) {
+      _userProfile.xp = (_userProfile.xp - xpReward);
+      if (_userProfile.xp < 0) _userProfile.xp = 0;
+    }
+    if (coinReward > 0) {
+      _userProfile.coins = (_userProfile.coins - coinReward);
+      if (_userProfile.coins < 0) _userProfile.coins = 0;
+    }
+    _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
+    if (_userProfile.completedTasks > 0) {
+      _userProfile.completedTasks -= 1;
+    }
+    if (completionRecordedAt != null &&
+        completionRecordedAt.hour < 9 &&
+        _userProfile.completionsBeforeNine > 0) {
+      _userProfile.completionsBeforeNine -= 1;
+    }
+    _userProfile.decrementWeeklyActivity(xp: xpReward, coins: coinReward);
+    await _persistUserProfile();
     notifyListeners();
   }
 
@@ -478,9 +659,9 @@ class AppStore extends ChangeNotifier {
         .toList();
   }
 
-  void _bumpCompletionStatsForAchievements({TaskModel? task}) {
-    final now = DateTime.now();
-    if (now.hour < 9) {
+  void _bumpCompletionStatsForAchievements({TaskModel? task, DateTime? at}) {
+    final when = at ?? DateTime.now();
+    if (when.hour < 9) {
       _userProfile.completionsBeforeNine += 1;
     }
     if (task != null && task.tag?.type == TagType.high) {
@@ -572,7 +753,9 @@ class AppStore extends ChangeNotifier {
         'weeklyActivity': _userProfile.weeklyActivity,
         'weeklyXp': _userProfile.weeklyXp,
         'weeklyCoins': _userProfile.weeklyCoins,
+        'weeklyChartWeekMonday': _userProfile.weeklyChartWeekMonday,
         'unlockedAchievements': _userProfile.unlockedAchievements,
+        'shopHiddenBuiltinIds': _userProfile.shopHiddenBuiltinIds,
         'highPriorityCompletions': _userProfile.highPriorityCompletions,
         'completionsBeforeNine': _userProfile.completionsBeforeNine,
       });
@@ -626,6 +809,8 @@ class AppStore extends ChangeNotifier {
       coins: 0,
       completedTasks: 0,
       streak: 0,
+      shopHiddenBuiltinIds: const [],
+      weeklyChartWeekMonday: UserProfile.mondayKeyFor(DateTime.now()),
     );
     
     // Create multiple goals for demo/testing
@@ -742,6 +927,8 @@ class AppStore extends ChangeNotifier {
       coins: 0,
       completedTasks: 0,
       streak: 0,
+      shopHiddenBuiltinIds: const [],
+      weeklyChartWeekMonday: UserProfile.mondayKeyFor(DateTime.now()),
     );
     _hasProfile = true;
     

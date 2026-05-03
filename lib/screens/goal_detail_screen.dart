@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
+import '../models/goal_xp_rules.dart';
 import '../models/task_model.dart';
 import '../widgets/task_item_widget.dart';
 import 'create_task_screen.dart';
@@ -52,6 +53,18 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     final goal = store.goals[goalIndex];
     final goalTasks = store.getTasksForGoal(widget.goalId);
     final progress = store.goalProgressPercent(widget.goalId);
+
+    final rewardExplained = goalTasks.isEmpty
+        ? 'Добавьте задачи: пул ${goal.xpTaskPool} XP распределится между ними (деление поровну × приоритет). '
+            'После выполнения всех задач начисляется бонус +${goal.xpCompletionBonus} XP (сохраняется вместе с целью в вашем аккаунте).'
+        : () {
+            final n = goalTasks.length;
+            final base =
+                GoalXpRules.baseSharePerTask(goal.xpTaskPool, n);
+            return 'Сейчас $n задач(и). Пул ${goal.xpTaskPool} XP делится поровну '
+                '(база ~$base XP за шаг при «среднем» приоритете), затем × приоритет задачи. '
+                'За финиш всех задач — ещё +${goal.xpCompletionBonus} XP.';
+          }();
 
     return Scaffold(
       backgroundColor: AppColors.bgMain,
@@ -172,6 +185,48 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                                           color: AppColors.textMuted,
                                           fontSize: 13)),
                                 ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.22),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.emoji_events_outlined,
+                                      color: AppColors.primaryDark, size: 22),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Награды по цели',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                rewardExplained,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.38,
+                                  color: AppColors.textMuted,
+                                ),
                               ),
                             ],
                           ),
@@ -347,21 +402,21 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   void _toggleTask(TaskModel task, List<TaskModel> goalTasks) {
-    final xpPerTask = goalTasks.isEmpty
-        ? 500
-        : (500 / goalTasks.length).round();
+    final store = AppStore.instance;
+    final willComplete = !task.completed;
+    final xpAward = store.xpRewardForGoalTask(task);
+    final reward = willComplete ? xpAward : task.reward;
 
     final updatedTask = task.copyWith(
-      completed: !task.completed,
-      reward: xpPerTask,
+      completed: willComplete,
+      reward: reward,
       isXp: true,
     );
 
-    AppStore.instance.updateTask(updatedTask);
+    store.updateTask(updatedTask);
 
-    if (!task.completed) {
-      // was uncompleted, now completing
-      _showSnack('+$xpPerTask XP за задачу!');
+    if (willComplete) {
+      _showSnack('+$xpAward XP за задачу!');
     }
   }
 

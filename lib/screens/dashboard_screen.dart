@@ -32,6 +32,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   final _quickAddController = TextEditingController();
   final _quickAddFocus = FocusNode();
+  bool _quickAddBusy = false;
 
   @override
   void initState() {
@@ -61,9 +62,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final user = AppStore.instance.userProfile;
     final xpPercent = user.getXpProgressPercent() / 100.0;
 
-    return Scaffold(
-      backgroundColor: AppColors.bgMain,
-      body: SafeArea(
+    return ColoredBox(
+      color: AppColors.bgMain,
+      child: SafeArea(
         child: Column(
           children: [
             // ─── Top bar: бренд без чужого аватара; фото — в карточке приветствия
@@ -212,7 +213,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('Опыт (XP)',
+                              Text(
+                                'Опыт (XP)',
                                 style: TextStyle(
                                   color: AppColors.textMuted,
                                   fontSize: 14,
@@ -236,8 +238,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               value: xpPercent,
                               minHeight: 8,
                               backgroundColor: AppColors.primaryLight,
-                              valueColor: AlwaysStoppedAnimation(
-                                  AppColors.primary),
+                              valueColor:
+                                  AlwaysStoppedAnimation(AppColors.primary),
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -320,8 +322,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               borderRadius: BorderRadius.circular(16),
                               clipBehavior: Clip.antiAlias,
                               child: InkWell(
-                                onTap: () =>
-                                    _submitQuickAdd(_quickAddController.text),
+                                onTap: _quickAddBusy
+                                    ? null
+                                    : () => _submitQuickAdd(
+                                          _quickAddController.text,
+                                        ),
                                 child: const SizedBox(
                                   width: 50,
                                   height: 50,
@@ -372,7 +377,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Активные цели',
+                        const Text(
+                          'Активные цели',
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w800,
@@ -380,7 +386,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         GestureDetector(
                           onTap: () => MainShell.of(context).setIndex(1),
-                          child: Text('Все',
+                          child: Text(
+                            'Все',
                             style: TextStyle(
                               color: AppColors.primary,
                               fontWeight: FontWeight.w600,
@@ -445,7 +452,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             .toList();
 
                         // Активные строки: привычки по слотам времени или одна строка на привычку/задачу.
-                        final activeHabitEntries = <({HabitModel habit, String? slot})>[];
+                        final activeHabitEntries =
+                            <({HabitModel habit, String? slot})>[];
                         for (final h in habits) {
                           if (_pendingDelete.contains(h.id) ||
                               _dismissed.contains(h.id)) {
@@ -487,8 +495,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 h.deadline != null &&
                                 !sameCalendarDay(h.deadline!))
                             .toList()
-                          ..sort((a, b) =>
-                              a.deadline!.compareTo(b.deadline!));
+                          ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
 
                         final upcomingCount =
                             upcomingGoalTasks.length + upcomingHabits.length;
@@ -513,14 +520,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           return h.isDoneForLocalDay(now);
                         }).toList();
 
-                        final completedShownCount =
-                            completedSlotRows.length + completedWholeHabits.length;
+                        final completedGoalTasksToday = AppStore.instance.tasks
+                            .where((t) =>
+                                t.goalId != null &&
+                                t.goalId!.isNotEmpty &&
+                                t.completed &&
+                                (t.scheduledAt == null ||
+                                    sameCalendarDay(t.scheduledAt!)))
+                            .toList();
+
+                        final completedShownCount = completedSlotRows.length +
+                            completedWholeHabits.length +
+                            completedGoalTasksToday.length;
 
                         // Expired quick tasks (deadline passed, not completed, not dismissed)
                         final expiredHabits = habits
                             .where((h) =>
-                                h.isExpired &&
-                                !_dismissed.contains(h.id))
+                                h.isExpired && !_dismissed.contains(h.id))
                             .toList();
 
                         return Column(
@@ -530,7 +546,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Задачи на сегодня',
+                                const Text(
+                                  'Задачи на сегодня',
                                   style: TextStyle(
                                     fontSize: 19,
                                     fontWeight: FontWeight.w800,
@@ -572,7 +589,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 upcomingCount == 0)
                               const Padding(
                                 padding: EdgeInsets.only(bottom: 12),
-                                child: Center(child: CircularProgressIndicator()),
+                                child:
+                                    Center(child: CircularProgressIndicator()),
                               )
                             else if (activeHabitEntries.isEmpty &&
                                 incompleteGoalTasks.isEmpty &&
@@ -586,212 +604,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   style: TextStyle(color: AppColors.textMuted),
                                 ),
                               )
-                            else ...[
-                              if (activeHabitEntries.isEmpty &&
-                                  incompleteGoalTasks.isEmpty &&
-                                  upcomingCount > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 14),
-                                  child: Text(
-                                    'На сегодня план пустой. Ниже — что запланировано на другие дни.',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: AppColors.textMuted,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                ),
-                              for (final entry in activeHabitEntries)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Dismissible(
-                                    key: Key(
-                                        '${entry.habit.id ?? entry.habit.title}_${entry.slot ?? 'main'}'),
-                                    direction: DismissDirection.endToStart,
-                                    background: Container(
-                                      alignment: Alignment.centerRight,
-                                      padding: const EdgeInsets.only(right: 20),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.red,
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: const Icon(
-                                          Icons.delete_outline_rounded,
-                                          color: Colors.white,
-                                          size: 24),
-                                    ),
-                                    onDismissed: (_) {
-                                      setState(() =>
-                                          _dismissed.add(entry.habit.id ?? ''));
-                                      _habitService
-                                          .deleteHabit(entry.habit.id ?? '');
-                                    },
-                                    child: TaskItemWidget(
-                                      task: _habitToTask(entry.habit,
-                                          reminderSlot: entry.slot),
-                                      onToggle: () {
-                                        if (entry.slot != null) {
-                                          _toggleHabitReminderSlot(
-                                              entry.habit, entry.slot!);
-                                        } else {
-                                          _toggleHabit(entry.habit);
-                                        }
-                                      },
-                                      onContentTap: () {
-                                        if (entry.habit.isRecurring) {
-                                          Navigator.of(context).push<void>(
-                                            MaterialPageRoute<void>(
-                                              builder: (_) => CreateHabitScreen(
-                                                habitToEdit: entry.habit,
-                                              ),
-                                            ),
-                                          );
-                                        } else {
-                                          Navigator.of(context).push<void>(
-                                            MaterialPageRoute<void>(
-                                              builder: (_) => CreateTaskScreen(
-                                                isFullPage: true,
-                                                habitToEdit: entry.habit,
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-
-                              // ── Задачи из целей (активные) ───────────────
-                              for (final gTask in incompleteGoalTasks)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Dismissible(
-                                    key: Key('goal_task_${gTask.id}'),
-                                    direction: DismissDirection.endToStart,
-                                    background: Container(
-                                      alignment: Alignment.centerRight,
-                                      padding: const EdgeInsets.only(right: 20),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.red,
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: const Icon(
-                                        Icons.delete_outline_rounded,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    ),
-                                    onDismissed: (_) {
-                                      AppStore.instance.deleteTask(gTask.id);
-                                    },
-                                    child: TaskItemWidget(
-                                      task: _goalTaskForDisplay(gTask),
-                                      onToggle: () =>
-                                          _toggleGoalTask(gTask),
-                                      onContentTap: () {
-                                        Navigator.of(context).push<void>(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => CreateTaskScreen(
-                                              isFullPage: true,
-                                              taskToEdit: gTask,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-
-                              // ── Запланировано на другие дни ─────────────
-                              if (upcomingCount > 0) ...[
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(6),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.blueLight
-                                            .withValues(alpha: 0.85),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Icon(
-                                        Icons.event_note_rounded,
-                                        size: 18,
-                                        color: AppColors.blue,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Дальше по плану',
-                                            style: TextStyle(
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            'Не на сегодня, но по расписанию',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: AppColors.textMuted,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.blueLight
-                                            .withValues(alpha: 0.6),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                       child: Text(
-                                        '$upcomingCount',
-                                        style: TextStyle(
-                                          color: AppColors.blue,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.fromLTRB(
-                                      12, 14, 12, 6),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.blueLight
-                                        .withValues(alpha: 0.22),
-                                    borderRadius: BorderRadius.circular(22),
-                                    border: Border.all(
-                                      color: AppColors.blue
-                                          .withValues(alpha: 0.12),
-                                    ),
-                                  ),
-                                  child: Column(
-                                    children: () {
-                                      final rows = <({DateTime at, Widget row})>[];
-                                      for (final h in upcomingHabits) {
-                                        rows.add((
-                                          at: h.deadline!,
-                                          row: Padding(
+                            else
+                              LayoutBuilder(
+                                builder: (context, _) {
+                                  final viewH = MediaQuery.sizeOf(context)
+                                          .height -
+                                      MediaQuery.viewInsetsOf(context).bottom;
+                                  final maxH =
+                                      (viewH * 0.58).clamp(240.0, 640.0);
+                                  return ConstrainedBox(
+                                    constraints:
+                                        BoxConstraints(maxHeight: maxH),
+                                    child: ListView(
+                                      primary: false,
+                                      shrinkWrap: true,
+                                      padding: EdgeInsets.zero,
+                                      physics: const ClampingScrollPhysics(),
+                                      children: [
+                                        if (activeHabitEntries.isEmpty &&
+                                            incompleteGoalTasks.isEmpty &&
+                                            upcomingCount > 0)
+                                          Padding(
                                             padding: const EdgeInsets.only(
-                                                bottom: 10),
+                                                bottom: 14),
+                                            child: Text(
+                                              'На сегодня план пустой. Ниже — что запланировано на другие дни.',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: AppColors.textMuted,
+                                                height: 1.35,
+                                              ),
+                                            ),
+                                          ),
+                                        for (final entry in activeHabitEntries)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                                bottom: 12),
                                             child: Dismissible(
-                                              key: Key('up_h_${h.id ?? h.title}'),
-                                              direction: DismissDirection
-                                                  .endToStart,
+                                              key: Key(
+                                                  '${entry.habit.id ?? entry.habit.title}_${entry.slot ?? 'main'}'),
+                                              direction:
+                                                  DismissDirection.endToStart,
                                               background: Container(
                                                 alignment:
                                                     Alignment.centerRight,
@@ -800,52 +653,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                 decoration: BoxDecoration(
                                                   color: AppColors.red,
                                                   borderRadius:
-                                                      BorderRadius.circular(
-                                                          16),
+                                                      BorderRadius.circular(16),
                                                 ),
                                                 child: const Icon(
-                                                  Icons.delete_outline_rounded,
-                                                  color: Colors.white,
-                                                  size: 24,
-                                                ),
+                                                    Icons
+                                                        .delete_outline_rounded,
+                                                    color: Colors.white,
+                                                    size: 24),
                                               ),
                                               onDismissed: (_) {
                                                 setState(() => _dismissed
-                                                    .add(h.id ?? ''));
+                                                    .add(entry.habit.id ?? ''));
                                                 _habitService.deleteHabit(
-                                                    h.id ?? '');
+                                                    entry.habit.id ?? '');
                                               },
                                               child: TaskItemWidget(
-                                                task: _habitToTaskUpcoming(
-                                                    h, now),
-                                                onToggle: () =>
-                                                    _toggleHabit(h),
+                                                task: _habitToTask(entry.habit,
+                                                    reminderSlot: entry.slot),
+                                                onToggle: () {
+                                                  if (entry.slot != null) {
+                                                    _toggleHabitReminderSlot(
+                                                        entry.habit,
+                                                        entry.slot!);
+                                                  } else {
+                                                    _toggleHabit(entry.habit);
+                                                  }
+                                                },
                                                 onContentTap: () {
-                                                  Navigator.of(context)
-                                                      .push<void>(
-                                                    MaterialPageRoute<void>(
-                                                      builder: (_) =>
-                                                          CreateTaskScreen(
-                                                        isFullPage: true,
-                                                        habitToEdit: h,
+                                                  if (entry.habit.isRecurring) {
+                                                    Navigator.of(context)
+                                                        .push<void>(
+                                                      MaterialPageRoute<void>(
+                                                        builder: (_) =>
+                                                            CreateHabitScreen(
+                                                          habitToEdit:
+                                                              entry.habit,
+                                                        ),
                                                       ),
-                                                    ),
-                                                  );
+                                                    );
+                                                  } else {
+                                                    Navigator.of(context)
+                                                        .push<void>(
+                                                      MaterialPageRoute<void>(
+                                                        builder: (_) =>
+                                                            CreateTaskScreen(
+                                                          isFullPage: true,
+                                                          habitToEdit:
+                                                              entry.habit,
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }
                                                 },
                                               ),
                                             ),
                                           ),
-                                        ));
-                                      }
-                                      for (final gTask in upcomingGoalTasks) {
-                                        rows.add((
-                                          at: gTask.scheduledAt!,
-                                          row: Padding(
+
+                                        // ── Задачи из целей (активные) ───────────────
+                                        for (final gTask in incompleteGoalTasks)
+                                          Padding(
                                             padding: const EdgeInsets.only(
-                                                bottom: 10),
+                                                bottom: 12),
                                             child: Dismissible(
-                                              key: Key('up_gt_${gTask.id}'),
-                                              direction: DismissDirection.endToStart,
+                                              key: Key('goal_task_${gTask.id}'),
+                                              direction:
+                                                  DismissDirection.endToStart,
                                               background: Container(
                                                 alignment:
                                                     Alignment.centerRight,
@@ -854,8 +726,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                 decoration: BoxDecoration(
                                                   color: AppColors.red,
                                                   borderRadius:
-                                                      BorderRadius.circular(
-                                                          16),
+                                                      BorderRadius.circular(16),
                                                 ),
                                                 child: const Icon(
                                                   Icons.delete_outline_rounded,
@@ -868,8 +739,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                     .deleteTask(gTask.id);
                                               },
                                               child: TaskItemWidget(
-                                                task: _goalTaskForUpcoming(
-                                                    gTask, now),
+                                                task:
+                                                    _goalTaskForDisplay(gTask),
                                                 onToggle: () =>
                                                     _toggleGoalTask(gTask),
                                                 onContentTap: () {
@@ -887,164 +758,484 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                               ),
                                             ),
                                           ),
-                                        ));
-                                      }
-                                      rows.sort(
-                                          (a, b) => a.at.compareTo(b.at));
-                                      return rows.map((e) => e.row).toList();
-                                    }(),
-                                  ),
-                                ),
-                              ],
 
-                              // ── Completed today section ──────────────
-                              if (completedShownCount > 0) ...[
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Icon(Icons.check_circle_outline_rounded,
-                                        size: 16, color: AppColors.primary),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Выполнено сегодня · $completedShownCount',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.primary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                for (final row in completedSlotRows)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: Dismissible(
-                                      key: Key(
-                                          'done_${row.$1.id}_${row.$2}'),
-                                      direction: DismissDirection.endToStart,
-                                      background: Container(
-                                        alignment: Alignment.centerRight,
-                                        padding: const EdgeInsets.only(right: 20),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.red,
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                        child: const Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Colors.white,
-                                            size: 24),
-                                      ),
-                                      onDismissed: (_) {
-                                        _habitService.deleteHabit(row.$1.id ?? '');
-                                      },
-                                      child: Opacity(
-                                        opacity: 0.6,
-                                        child: TaskItemWidget(
-                                          task: _habitToTask(row.$1,
-                                              reminderSlot: row.$2),
-                                          onToggle: () =>
-                                              _toggleHabitReminderSlot(
-                                                  row.$1, row.$2),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                for (final habit in completedWholeHabits)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: Dismissible(
-                                      key: Key('done_${habit.id ?? habit.title}'),
-                                      direction: DismissDirection.endToStart,
-                                      background: Container(
-                                        alignment: Alignment.centerRight,
-                                        padding: const EdgeInsets.only(right: 20),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.red,
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                        child: const Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Colors.white,
-                                            size: 24),
-                                      ),
-                                      onDismissed: (_) {
-                                        _habitService.deleteHabit(habit.id ?? '');
-                                      },
-                                      child: Opacity(
-                                        opacity: 0.6,
-                                        child: TaskItemWidget(
-                                          task: _habitToTask(habit),
-                                          onToggle: () {},
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-
-                              // ── Expired (failed) quick tasks ─────────
-                              if (expiredHabits.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Icon(Icons.warning_amber_rounded,
-                                        size: 16, color: AppColors.red),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Просрочено · ${expiredHabits.length}',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.red,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                for (final habit in expiredHabits)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: Dismissible(
-                                      key: Key('expired_${habit.id ?? habit.title}'),
-                                      direction: DismissDirection.endToStart,
-                                      background: Container(
-                                        alignment: Alignment.centerRight,
-                                        padding: const EdgeInsets.only(right: 20),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.red,
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                        child: const Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Colors.white,
-                                            size: 24),
-                                      ),
-                                      onDismissed: (_) {
-                                        setState(() => _dismissed.add(habit.id ?? ''));
-                                        _habitService.deleteHabit(habit.id ?? '');
-                                      },
-                                      child: Opacity(
-                                        opacity: 0.55,
-                                        child: TaskItemWidget(
-                                          task: _habitToTask(habit),
-                                          onToggle: () => _toggleHabit(habit),
-                                          onContentTap: () {
-                                            Navigator.of(context).push<void>(
-                                              MaterialPageRoute<void>(
-                                                builder: (_) =>
-                                                    CreateTaskScreen(
-                                                  isFullPage: true,
-                                                  habitToEdit: habit,
+                                        // ── Запланировано на другие дни ─────────────
+                                        if (upcomingCount > 0) ...[
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(6),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.blueLight
+                                                      .withValues(alpha: 0.85),
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                                child: Icon(
+                                                  Icons.event_note_rounded,
+                                                  size: 18,
+                                                  color: AppColors.blue,
                                                 ),
                                               ),
-                                            );
-                                          },
-                                        ),
-                                      ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Text(
+                                                      'Дальше по плану',
+                                                      style: TextStyle(
+                                                        fontSize: 17,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      'Не на сегодня, но по расписанию',
+                                                      style: TextStyle(
+                                                        fontSize: 13,
+                                                        color:
+                                                            AppColors.textMuted,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 10,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.blueLight
+                                                      .withValues(alpha: 0.6),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                ),
+                                                child: Text(
+                                                  '$upcomingCount',
+                                                  style: TextStyle(
+                                                    color: AppColors.blue,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.fromLTRB(
+                                                12, 14, 12, 6),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.blueLight
+                                                  .withValues(alpha: 0.22),
+                                              borderRadius:
+                                                  BorderRadius.circular(22),
+                                              border: Border.all(
+                                                color: AppColors.blue
+                                                    .withValues(alpha: 0.12),
+                                              ),
+                                            ),
+                                            child: Column(
+                                              children: () {
+                                                final rows = <({
+                                                  DateTime at,
+                                                  Widget row
+                                                })>[];
+                                                for (final h
+                                                    in upcomingHabits) {
+                                                  rows.add((
+                                                    at: h.deadline!,
+                                                    row: Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                              bottom: 10),
+                                                      child: Dismissible(
+                                                        key: Key(
+                                                            'up_h_${h.id ?? h.title}'),
+                                                        direction:
+                                                            DismissDirection
+                                                                .endToStart,
+                                                        background: Container(
+                                                          alignment: Alignment
+                                                              .centerRight,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .only(
+                                                                  right: 20),
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color:
+                                                                AppColors.red,
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                        16),
+                                                          ),
+                                                          child: const Icon(
+                                                            Icons
+                                                                .delete_outline_rounded,
+                                                            color: Colors.white,
+                                                            size: 24,
+                                                          ),
+                                                        ),
+                                                        onDismissed: (_) {
+                                                          setState(() =>
+                                                              _dismissed.add(
+                                                                  h.id ?? ''));
+                                                          _habitService
+                                                              .deleteHabit(
+                                                                  h.id ?? '');
+                                                        },
+                                                        child: TaskItemWidget(
+                                                          task:
+                                                              _habitToTaskUpcoming(
+                                                                  h, now),
+                                                          onToggle: () =>
+                                                              _toggleHabit(h),
+                                                          onContentTap: () {
+                                                            Navigator.of(
+                                                                    context)
+                                                                .push<void>(
+                                                              MaterialPageRoute<
+                                                                  void>(
+                                                                builder: (_) =>
+                                                                    CreateTaskScreen(
+                                                                  isFullPage:
+                                                                      true,
+                                                                  habitToEdit:
+                                                                      h,
+                                                                ),
+                                                              ),
+                                                            );
+                                                          },
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ));
+                                                }
+                                                for (final gTask
+                                                    in upcomingGoalTasks) {
+                                                  rows.add((
+                                                    at: gTask.scheduledAt!,
+                                                    row: Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                              bottom: 10),
+                                                      child: Dismissible(
+                                                        key: Key(
+                                                            'up_gt_${gTask.id}'),
+                                                        direction:
+                                                            DismissDirection
+                                                                .endToStart,
+                                                        background: Container(
+                                                          alignment: Alignment
+                                                              .centerRight,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .only(
+                                                                  right: 20),
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color:
+                                                                AppColors.red,
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                        16),
+                                                          ),
+                                                          child: const Icon(
+                                                            Icons
+                                                                .delete_outline_rounded,
+                                                            color: Colors.white,
+                                                            size: 24,
+                                                          ),
+                                                        ),
+                                                        onDismissed: (_) {
+                                                          AppStore.instance
+                                                              .deleteTask(
+                                                                  gTask.id);
+                                                        },
+                                                        child: TaskItemWidget(
+                                                          task:
+                                                              _goalTaskForUpcoming(
+                                                                  gTask, now),
+                                                          onToggle: () =>
+                                                              _toggleGoalTask(
+                                                                  gTask),
+                                                          onContentTap: () {
+                                                            Navigator.of(
+                                                                    context)
+                                                                .push<void>(
+                                                              MaterialPageRoute<
+                                                                  void>(
+                                                                builder: (_) =>
+                                                                    CreateTaskScreen(
+                                                                  isFullPage:
+                                                                      true,
+                                                                  taskToEdit:
+                                                                      gTask,
+                                                                ),
+                                                              ),
+                                                            );
+                                                          },
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ));
+                                                }
+                                                rows.sort((a, b) =>
+                                                    a.at.compareTo(b.at));
+                                                return rows
+                                                    .map((e) => e.row)
+                                                    .toList();
+                                              }(),
+                                            ),
+                                          ),
+                                        ],
+
+                                        // ── Completed today section ──────────────
+                                        if (completedShownCount > 0) ...[
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                  Icons
+                                                      .check_circle_outline_rounded,
+                                                  size: 16,
+                                                  color: AppColors.primary),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                'Выполнено сегодня · $completedShownCount',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.primary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          for (final row in completedSlotRows)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 10),
+                                              child: Dismissible(
+                                                key: Key(
+                                                    'done_${row.$1.id}_${row.$2}'),
+                                                direction:
+                                                    DismissDirection.endToStart,
+                                                background: Container(
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          right: 20),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.red,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                  ),
+                                                  child: const Icon(
+                                                      Icons
+                                                          .delete_outline_rounded,
+                                                      color: Colors.white,
+                                                      size: 24),
+                                                ),
+                                                onDismissed: (_) {
+                                                  _habitService.deleteHabit(
+                                                      row.$1.id ?? '');
+                                                },
+                                                child: Opacity(
+                                                  opacity: 0.6,
+                                                  child: TaskItemWidget(
+                                                    task: _habitToTask(row.$1,
+                                                        reminderSlot: row.$2),
+                                                    onToggle: () =>
+                                                        _toggleHabitReminderSlot(
+                                                            row.$1, row.$2),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          for (final habit
+                                              in completedWholeHabits)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 10),
+                                              child: Dismissible(
+                                                key: Key(
+                                                    'done_${habit.id ?? habit.title}'),
+                                                direction:
+                                                    DismissDirection.endToStart,
+                                                background: Container(
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          right: 20),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.red,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                  ),
+                                                  child: const Icon(
+                                                      Icons
+                                                          .delete_outline_rounded,
+                                                      color: Colors.white,
+                                                      size: 24),
+                                                ),
+                                                onDismissed: (_) {
+                                                  _habitService.deleteHabit(
+                                                      habit.id ?? '');
+                                                },
+                                                child: Opacity(
+                                                  opacity: 0.6,
+                                                  child: TaskItemWidget(
+                                                    task: _habitToTask(habit),
+                                                    onToggle: () =>
+                                                        _uncompleteHabitFromDoneList(
+                                                            habit),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          for (final gt
+                                              in completedGoalTasksToday)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 10),
+                                              child: Dismissible(
+                                                key: Key('done_goal_${gt.id}'),
+                                                direction:
+                                                    DismissDirection.endToStart,
+                                                background: Container(
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          right: 20),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.red,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons
+                                                        .delete_outline_rounded,
+                                                    color: Colors.white,
+                                                    size: 24,
+                                                  ),
+                                                ),
+                                                onDismissed: (_) {
+                                                  AppStore.instance
+                                                      .deleteTask(gt.id);
+                                                },
+                                                child: Opacity(
+                                                  opacity: 0.6,
+                                                  child: TaskItemWidget(
+                                                    task:
+                                                        _goalTaskForDisplay(gt),
+                                                    onToggle: () =>
+                                                        _toggleGoalTask(gt),
+                                                    onContentTap: null,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+
+                                        // ── Expired (failed) quick tasks ─────────
+                                        if (expiredHabits.isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Icon(Icons.warning_amber_rounded,
+                                                  size: 16,
+                                                  color: AppColors.red),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                'Просрочено · ${expiredHabits.length}',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.red,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          for (final habit in expiredHabits)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 10),
+                                              child: Dismissible(
+                                                key: Key(
+                                                    'expired_${habit.id ?? habit.title}'),
+                                                direction:
+                                                    DismissDirection.endToStart,
+                                                background: Container(
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          right: 20),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.red,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                  ),
+                                                  child: const Icon(
+                                                      Icons
+                                                          .delete_outline_rounded,
+                                                      color: Colors.white,
+                                                      size: 24),
+                                                ),
+                                                onDismissed: (_) {
+                                                  setState(() => _dismissed
+                                                      .add(habit.id ?? ''));
+                                                  _habitService.deleteHabit(
+                                                      habit.id ?? '');
+                                                },
+                                                child: Opacity(
+                                                  opacity: 0.55,
+                                                  child: TaskItemWidget(
+                                                    task: _habitToTask(habit),
+                                                    onToggle: () =>
+                                                        _toggleHabit(habit),
+                                                    onContentTap: () {
+                                                      Navigator.of(context)
+                                                          .push<void>(
+                                                        MaterialPageRoute<void>(
+                                                          builder: (_) =>
+                                                              CreateTaskScreen(
+                                                            isFullPage: true,
+                                                            habitToEdit: habit,
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ],
                                     ),
-                                  ),
-                              ],
-                            ],
+                                  );
+                                },
+                              ),
                           ],
                         );
                       },
@@ -1079,21 +1270,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _toggleGoalTask(tm.TaskModel task) {
     final gid = task.goalId;
     if (gid == null || gid.isEmpty) return;
-    final goalTasks = AppStore.instance.getTasksForGoal(gid);
-    final xpPerTask = goalTasks.isEmpty
-        ? 500
-        : (500 / goalTasks.length).round();
-
+    final store = AppStore.instance;
+    final willComplete = !task.completed;
+    final xpAward = store.xpRewardForGoalTask(task);
+    final reward = willComplete ? xpAward : task.reward;
     final updatedTask = task.copyWith(
-      completed: !task.completed,
-      reward: xpPerTask,
+      completed: willComplete,
+      reward: reward,
       isXp: true,
     );
 
-    AppStore.instance.updateTask(updatedTask);
+    store.updateTask(updatedTask);
 
-    if (!task.completed) {
-      MainShell.of(context).showToast('+$xpPerTask XP за задачу!');
+    if (willComplete) {
+      MainShell.of(context).showToast('+$xpAward XP за задачу!');
+    } else {
+      MainShell.of(context).showToast('Задача снова активна');
     }
   }
 
@@ -1101,9 +1293,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _quickAddFocus.unfocus();
     if (text.trim().isEmpty) {
       // Если пусто — просто открываем полный экран
-      Navigator.of(context).push(_slideRoute(const CreateTaskScreen(isFullPage: true)));
+      Navigator.of(context)
+          .push(_slideRoute(const CreateTaskScreen(isFullPage: true)));
       return;
     }
+    if (_quickAddBusy) return;
+    setState(() => _quickAddBusy = true);
     try {
       final now = DateTime.now();
       final habit = HabitModel(
@@ -1130,9 +1325,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
         }
       }
+    } on ArgumentError catch (e) {
+      if (!mounted) return;
+      MainShell.of(context)
+          .showToast(e.message ?? 'Проверьте данные', isError: true);
     } catch (_) {
       if (!mounted) return;
       MainShell.of(context).showToast('Ошибка сохранения', isError: true);
+    } finally {
+      if (mounted) setState(() => _quickAddBusy = false);
     }
   }
 
@@ -1172,13 +1373,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     await _habitService.updateHabit(patch);
     final n = h.reminderTimes.length;
-    final xpPer = n > 0
-        ? math.max(1, (h.xpReward / n).round())
-        : h.xpReward;
-    await AppStore.instance.completeHabitTask(xpReward: xpPer, coinReward: 0);
+    final xpPer = n > 0 ? math.max(1, (h.xpReward / n).round()) : h.xpReward;
+    await AppStore.instance.completeHabitTask(
+      xpReward: xpPer,
+      coinReward: 0,
+      statsAt: now,
+    );
     if (mounted) {
       MainShell.of(context).showToast('+$xpPer XP · $slotHm');
       setState(() {});
+    }
+  }
+
+  Future<void> _uncompleteHabitFromDoneList(HabitModel habit) async {
+    final id = habit.id ?? '';
+    if (id.isEmpty) return;
+    if (_pendingDelete.contains(id)) {
+      _undoCompletion(habit);
+      return;
+    }
+    try {
+      await AppStore.instance.revertHabitCompletionRewards(
+        xpReward: habit.xpReward,
+        coinReward: habit.coinReward,
+        completionRecordedAt: habit.completedAt,
+      );
+      await _habitService.updateHabit(
+        habit.copyWith(
+          completed: false,
+          clearCompletedAt: true,
+          clearLastCompletedDateKey: true,
+          clearSlotsProgress: true,
+        ),
+      );
+      if (mounted) {
+        MainShell.of(context).showToast('Задача снова в списке невыполненных');
+        setState(() {});
+      }
+    } catch (_) {
+      if (mounted) {
+        MainShell.of(context).showToast(
+          'Не удалось вернуть задачу',
+          isError: true,
+        );
+      }
     }
   }
 
@@ -1202,8 +1440,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           backgroundColor: AppColors.primary,
           action: SnackBarAction(
             label: 'Отменить',
@@ -1243,15 +1482,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _deleteTimers.remove(id);
     setState(() => _pendingDelete.remove(id));
     if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+    final at = DateTime.now();
     await AppStore.instance.completeHabitTask(
       xpReward: habit.xpReward,
       coinReward: habit.coinReward,
+      statsAt: at,
     );
     await _habitService.updateHabit(
       habit.copyWith(
         completed: true,
-        completedAt: DateTime.now(),
-        lastCompletedDateKey: HabitModel.dateKeyLocal(DateTime.now()),
+        completedAt: at,
+        lastCompletedDateKey: HabitModel.dateKeyLocal(at),
       ),
     );
   }
@@ -1262,11 +1503,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (h.isRecurring && h.reminderTimes.isNotEmpty) {
       return false;
     }
+    // Быстрая задача: дедлайн через 24 ч — это почти всегда «завтра» по календарю.
+    // Не требуем deadline в тот же день, что и сейчас, иначе строка не появляется в списке.
     if (h.isQuickTask) {
-      return !h.completed &&
-          !h.isExpired &&
-          h.completedAt == null &&
-          (h.deadline == null || _sameCalendarDay(h.deadline!, now));
+      return !h.completed && !h.isExpired && h.completedAt == null;
     }
     if (h.isRecurring) {
       if (!h.matchesRepeatOn(now)) return false;
@@ -1300,8 +1540,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             : 'Привычка · каждый день';
       } else {
         const names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-        final days =
-            [...habit.repeatWeekdays]..sort((a, b) => a.compareTo(b));
+        final days = [...habit.repeatWeekdays]..sort((a, b) => a.compareTo(b));
         final label = days.map((d) => names[d - 1]).join(', ');
         subtitle = habit.notes.isNotEmpty
             ? 'Привычка · $label · ${habit.notes}'
@@ -1321,9 +1560,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             : 'Быстрая задача · осталось $mм';
       }
     } else {
-      subtitle = (habit.isExpired && habit.deadline != null)
-          ? 'Просрочено'
-          : 'Задача';
+      subtitle =
+          (habit.isExpired && habit.deadline != null) ? 'Просрочено' : 'Задача';
     }
 
     // Награда: быстрые задачи и задачи с экрана «Добавить» хранят xpReward; раньше XP в карточке был только при isQuickTask.
@@ -1359,8 +1597,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
     if (diff >= 3 && diff <= 6) return weekdays[s.weekday - 1];
     const months = [
-      'янв', 'фев', 'мар', 'апр', 'мая', 'июн',
-      'июл', 'авг', 'сен', 'окт', 'ноя', 'дек',
+      'янв',
+      'фев',
+      'мар',
+      'апр',
+      'мая',
+      'июн',
+      'июл',
+      'авг',
+      'сен',
+      'окт',
+      'ноя',
+      'дек',
     ];
     return '${s.day} ${months[s.month - 1]}';
   }

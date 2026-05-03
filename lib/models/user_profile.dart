@@ -1,7 +1,5 @@
 import 'dart:math' show max;
 
-import 'package:flutter/foundation.dart';
-
 class UserProfile {
   final String id;
   String name;
@@ -19,11 +17,16 @@ class UserProfile {
   int streak; // Days in a row of completing tasks
   DateTime? lastTaskCompletedDate;
   // Tasks completed per weekday: index 0=Mon, 1=Tue, ..., 6=Sun
+  /// Только для **текущей** календарной недели (понедельник–воскресенье, локальное время).
   List<int> weeklyActivity;
   List<int> weeklyXp;
   List<int> weeklyCoins;
+  /// Локальный понедельник недели, к которой относятся столбцы (`yyyy-MM-dd`). Иначе столбец «Ср» смешивал вчера и сегодня.
+  String? weeklyChartWeekMonday;
   /// Id из [kAchievementCatalog], дублируются в Firestore `unlockedAchievements`.
   List<String> unlockedAchievements;
+  /// Встроенные награды магазина ([kDefaultShopRewards]), скрытые пользователем.
+  List<String> shopHiddenBuiltinIds;
   /// Завершения задач целей с тегом «высокий» приоритет (для достижения «Мастер»).
   int highPriorityCompletions;
   /// Сколько раз отметили выполнение до 9:00 местного времени (задачи и привычки).
@@ -44,15 +47,39 @@ class UserProfile {
     List<int>? weeklyActivity,
     List<int>? weeklyXp,
     List<int>? weeklyCoins,
+    this.weeklyChartWeekMonday,
     List<String>? unlockedAchievements,
+    List<String>? shopHiddenBuiltinIds,
     this.highPriorityCompletions = 0,
     this.completionsBeforeNine = 0,
   }) : weeklyActivity = weeklyActivity ?? List.filled(7, 0),
        weeklyXp = weeklyXp ?? List.filled(7, 0),
        weeklyCoins = weeklyCoins ?? List.filled(7, 0),
-       unlockedAchievements = List<String>.from(unlockedAchievements ?? []);
+       unlockedAchievements = List<String>.from(unlockedAchievements ?? []),
+       shopHiddenBuiltinIds =
+           List<String>.from(shopHiddenBuiltinIds ?? []);
 
-  // Calculate current level based on XP
+  /// Ключ `yyyy-MM-dd` локального понедельника для [at].
+  static String mondayKeyFor(DateTime at) {
+    final day = DateTime(at.year, at.month, at.day);
+    final monday =
+        day.subtract(Duration(days: day.weekday - DateTime.monday));
+    return '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Если наступила новая календарная неделя (или первый запуск) — обнуляет столбцы и обновляет ключ.
+  /// Возвращает `true`, если данные изменились и их стоит записать в Firestore.
+  bool ensureWeeklyBucketsForCurrentWeek() {
+    final key = mondayKeyFor(DateTime.now());
+    if (weeklyChartWeekMonday == key) return false;
+    for (var i = 0; i < 7; i++) {
+      weeklyActivity[i] = 0;
+      weeklyXp[i] = 0;
+      weeklyCoins[i] = 0;
+    }
+    weeklyChartWeekMonday = key;
+    return true;
+  }
   int calculateLevel(int totalXp) {
     return (totalXp ~/ xpPerLevel) + 1;
   }
@@ -65,10 +92,8 @@ class UserProfile {
 
   // Add XP and auto-level up
   void addXp(int amount) {
-    debugPrint('DEBUG: addXp called with amount=$amount, xp before=$xp');
     xp += amount;
     level = calculateLevel(xp);
-    debugPrint('DEBUG: addXp done, xp after=$xp, level=$level');
   }
 
   // Add coins
@@ -104,12 +129,26 @@ class UserProfile {
     completedTasks += 1;
   }
 
-  // Increment today's weekday slot (Mon=0 .. Sun=6)
+  // Increment today's weekday slot (Mon=0 .. Sun=6), только в рамках текущей календарной недели.
   void incrementWeeklyActivity({int xp = 0, int coins = 0}) {
+    ensureWeeklyBucketsForCurrentWeek();
     final todayIndex = DateTime.now().weekday - 1;
     weeklyActivity[todayIndex] += 1;
     weeklyXp[todayIndex] += xp;
     weeklyCoins[todayIndex] += coins;
+  }
+
+  /// Откат начисления за день при снятии отметки с привычки (симметрия к одному вызову [incrementWeeklyActivity]).
+  void decrementWeeklyActivity({int xp = 0, int coins = 0}) {
+    ensureWeeklyBucketsForCurrentWeek();
+    final todayIndex = DateTime.now().weekday - 1;
+    if (weeklyActivity[todayIndex] > 0) {
+      weeklyActivity[todayIndex] -= 1;
+    }
+    weeklyXp[todayIndex] = (weeklyXp[todayIndex] - xp);
+    if (weeklyXp[todayIndex] < 0) weeklyXp[todayIndex] = 0;
+    weeklyCoins[todayIndex] = (weeklyCoins[todayIndex] - coins);
+    if (weeklyCoins[todayIndex] < 0) weeklyCoins[todayIndex] = 0;
   }
 
   // Get XP needed for next level
@@ -189,7 +228,9 @@ class UserProfile {
     List<int>? weeklyActivity,
     List<int>? weeklyXp,
     List<int>? weeklyCoins,
+    String? weeklyChartWeekMonday,
     List<String>? unlockedAchievements,
+    List<String>? shopHiddenBuiltinIds,
     int? highPriorityCompletions,
     int? completionsBeforeNine,
   }) {
@@ -208,7 +249,11 @@ class UserProfile {
       weeklyActivity: weeklyActivity ?? List.of(this.weeklyActivity),
       weeklyXp: weeklyXp ?? List.of(this.weeklyXp),
       weeklyCoins: weeklyCoins ?? List.of(this.weeklyCoins),
+      weeklyChartWeekMonday:
+          weeklyChartWeekMonday ?? this.weeklyChartWeekMonday,
       unlockedAchievements: unlockedAchievements ?? List.of(this.unlockedAchievements),
+      shopHiddenBuiltinIds:
+          shopHiddenBuiltinIds ?? List.of(this.shopHiddenBuiltinIds),
       highPriorityCompletions:
           highPriorityCompletions ?? this.highPriorityCompletions,
       completionsBeforeNine:

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
 import '../models/goal_model.dart';
+import '../models/goal_xp_rules.dart';
 import '../models/task_model.dart';
 
 class CreateGoalScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class CreateGoalScreen extends StatefulWidget {
 
 class _CreateGoalScreenState extends State<CreateGoalScreen> {
   int _selectedCategory = 0;
+  bool _isCreating = false;
 
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -98,6 +100,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
   }
 
   Future<void> _createGoal() async {
+    if (_isCreating) return;
+
     if (_titleController.text.trim().isEmpty) {
       _showSnack('Введите название цели', isError: true);
       return;
@@ -110,48 +114,63 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
       3: GoalColor.warning,   // Хобби
     };
 
-    final goalId = DateTime.now().millisecondsSinceEpoch.toString();
     final taskTitles = _taskControllers
         .map((c) => c.text.trim())
         .where((t) => t.isNotEmpty)
         .toList();
 
-    final newGoal = GoalModel(
-      id: goalId,
-      title: _titleController.text.trim(),
-      subtitle: _descriptionController.text.trim(),
-      badge: '0/${taskTitles.length}',
-      iconName: _categories[_selectedCategory].toLowerCase(),
-      color: colorMap[_selectedCategory]!,
-      progress: 0,
-      tasksLeft: taskTitles.length,
-      deadline: _deadline,
-      startDate: _startDate,
-    );
-
+    setState(() => _isCreating = true);
     try {
+      final goalId = DateTime.now().millisecondsSinceEpoch.toString();
+      final newGoal = GoalModel(
+        id: goalId,
+        title: _titleController.text.trim(),
+        subtitle: _descriptionController.text.trim(),
+        badge: '0/${taskTitles.length}',
+        iconName: _categories[_selectedCategory].toLowerCase(),
+        color: colorMap[_selectedCategory]!,
+        progress: 0,
+        tasksLeft: taskTitles.length,
+        deadline: _deadline,
+        startDate: _startDate,
+      );
+
       await AppStore.instance.addGoal(newGoal);
 
       // Create linked tasks via AppStore (same authenticated service)
       for (int i = 0; i < taskTitles.length; i++) {
+        final xp = GoalXpRules.taskXp(
+          pool: GoalXpRules.defaultTaskPool,
+          taskCount: taskTitles.length,
+          tag: const TaskTag(text: 'Средний', type: TagType.medium),
+        );
         final task = TaskModel(
           id: '${goalId}_task_$i',
           title: taskTitles[i],
           subtitle: _categories[_selectedCategory],
           goalId: goalId,
-          reward: 10,
+          reward: xp,
           isXp: true,
         );
-        await AppStore.instance.addTask(task);
+        final last = i == taskTitles.length - 1;
+        await AppStore.instance.addTask(
+          task,
+          rebalanceGoalRewards: last,
+        );
       }
 
       if (!mounted) return;
       _showSnack('Цель успешно создана!');
       await Future.delayed(const Duration(milliseconds: 800));
       if (mounted) Navigator.of(context).pop();
+    } on ArgumentError catch (e) {
+      if (!mounted) return;
+      _showSnack(e.message ?? 'Проверьте данные', isError: true);
     } catch (e, st) {
       debugPrint('CreateGoal error: $e\n$st');
       _showSnack('Не удалось создать цель. Проверьте соединение.', isError: true);
+    } finally {
+      if (mounted) setState(() => _isCreating = false);
     }
   }
 
@@ -508,7 +527,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _createGoal,
+                        onPressed: _isCreating ? null : _createGoal,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(vertical: 18),
@@ -517,14 +536,23 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'Создать цель',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
+                        child: _isCreating
+                            ? const SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Создать цель',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 20),

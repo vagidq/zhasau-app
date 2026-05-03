@@ -73,22 +73,6 @@ class TaskTag {
 
 enum TagType { high, medium, repeat }
 
-class ShopItem {
-  final String id;
-  final String title;
-  final String desc;
-  final int price;
-  final String imageUrl;
-
-  const ShopItem({
-    required this.id,
-    required this.title,
-    required this.desc,
-    required this.price,
-    required this.imageUrl,
-  });
-}
-
 // ─── Mock Data ────────────────────────────────────────────────────────────
 
 class MockData {
@@ -178,33 +162,6 @@ class MockData {
       reward: 0,
       isXp: false,
       tag: const TaskTag(text: 'MEDIUM', type: TagType.medium),
-    ),
-  ];
-
-  static final List<ShopItem> shopItems = [
-    const ShopItem(
-      id: 's1',
-      title: 'Посмотреть фильм',
-      desc: 'Вечерний киносеанс',
-      price: 50,
-      imageUrl:
-          'https://images.unsplash.com/photo-1585647347384-2593bc35786b?auto=format&fit=crop&q=80&w=300&h=200',
-    ),
-    const ShopItem(
-      id: 's2',
-      title: 'Заказать пиццу',
-      desc: 'Любимый вкус',
-      price: 200,
-      imageUrl:
-          'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&q=80&w=300&h=200',
-    ),
-    const ShopItem(
-      id: 's3',
-      title: '1 час видеоигр',
-      desc: 'Время для отдыха',
-      price: 100,
-      imageUrl:
-          'https://images.unsplash.com/photo-1593305841991-05c297ba4575?auto=format&fit=crop&q=80&w=300&h=200',
     ),
   ];
 }

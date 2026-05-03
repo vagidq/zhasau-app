@@ -5,6 +5,7 @@ class InAppNotificationTypes {
   InAppNotificationTypes._();
 
   static const achievement = 'achievement';
+  static const goalBonus = 'goal_bonus';
 }
 
 class InAppNotification {

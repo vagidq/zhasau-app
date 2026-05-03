@@ -1,5 +1,7 @@
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
 import 'main_shell.dart';
@@ -10,6 +12,9 @@ import '../services/habit_service.dart';
 import '../services/push_notification_bridge.dart';
 import 'splash_screen.dart';
 import 'edit_profile_screen.dart';
+
+/// Почта для пункта «Поддержка» (замените на свою перед публикацией).
+const String _kSupportEmail = 'ruslan.zlobin.06@mail.ru';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -45,20 +50,181 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _tryServerTestPush() async {
+  Future<void> _openPasswordSecurity() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _toast('Войдите в аккаунт', isError: true);
+      return;
+    }
+    if (user.isAnonymous) {
+      _toast(
+        'Вы вошли анонимно. Пароль не используется — зарегистрируйтесь с почтой '
+        'на экране входа, чтобы можно было сбрасывать пароль.',
+        isError: true,
+      );
+      return;
+    }
+    final email = user.email?.trim();
+    if (email == null || email.isEmpty) {
+      _toast('У аккаунта нет почты для сброса', isError: true);
+      return;
+    }
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+    final hasEmailPassword = providers.contains('password');
+    if (!hasEmailPassword) {
+      if (providers.contains('google.com')) {
+        _toast(
+          'Вход через Google: пароль в Zhasau не хранится. '
+          'Безопасность аккаунта — в настройках Google.',
+        );
+      } else {
+        _toast('Сброс пароля для этого способа входа недоступен из приложения.');
+      }
+      return;
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Сброс пароля'),
+        content: Text(
+          'Отправить письмо со ссылкой для нового пароля на адрес\n$email?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Отправить'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('sendPushToSelf');
-      await callable.call(<String, dynamic>{
-        'title': 'Zhasau',
-        'body': 'Проверка серверного уведомления',
-      });
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (!mounted) return;
-      _toast('Запрос отправлен');
+      _toast('Письмо отправлено. Проверьте почту (и папку «Спам»).');
     } catch (e) {
       if (!mounted) return;
-      _toast(e.toString(), isError: true);
+      _toast('Не удалось отправить письмо: $e', isError: true);
     }
+  }
+
+  Future<void> _openSupport() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.bgWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderDark,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Помощь',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '• Проверьте интернет и что вы вошли в аккаунт.\n'
+                '• Уведомления: разрешите их для Zhasau в настройках телефона.\n'
+                '• Пароль от почты: раздел «Пароль и безопасность».\n'
+                '• Загрузка фото: в Firebase должен быть включён Storage.',
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.45,
+                  color: AppColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(
+                    const ClipboardData(text: _kSupportEmail),
+                  );
+                  if (!ctx.mounted) return;
+                  Navigator.pop(ctx);
+                  if (!mounted) return;
+                  _toast('Адрес скопирован: $_kSupportEmail');
+                },
+                icon: const Icon(Icons.copy_rounded, size: 20),
+                label: const Text('Скопировать e-mail поддержки'),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: () async {
+                  final uri = Uri(
+                    scheme: 'mailto',
+                    path: _kSupportEmail,
+                    queryParameters: const {
+                      'subject': 'Zhasau — вопрос',
+                    },
+                  );
+                  try {
+                    final launched = await launchUrl(
+                      uri,
+                      mode: LaunchMode.externalApplication,
+                    );
+                    if (!ctx.mounted) return;
+                    if (!launched) {
+                      await Clipboard.setData(
+                    const ClipboardData(text: _kSupportEmail),
+                  );
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+                      if (!mounted) return;
+                      _toast('Почта не открылась — адрес скопирован', isError: true);
+                      return;
+                    }
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx);
+                  } catch (_) {
+                    if (!ctx.mounted) return;
+                    await Clipboard.setData(
+                    const ClipboardData(text: _kSupportEmail),
+                  );
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx);
+                    if (!mounted) return;
+                    _toast('Адрес поддержки скопирован в буфер');
+                  }
+                },
+                icon: const Icon(Icons.mail_outline_rounded),
+                label: const Text('Написать в поддержку'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -151,7 +317,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.warning,
                         title: 'Пароль и безопасность',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => _toast('Безопасность'),
+                        onTap: _openPasswordSecurity,
                       ),
                     ]),
 
@@ -324,15 +490,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.textLight,
                         title: 'Поддержка и помощь',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => _toast('Раздел поддержки'),
-                      ),
-                      _divider(),
-                      _settingsItem(
-                        icon: Icons.cloud_upload_rounded,
-                        color: AppColors.blue,
-                        title: 'Проверить push с сервера',
-                        trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: _tryServerTestPush,
+                        onTap: _openSupport,
                       ),
                       _divider(),
                       _settingsItem(

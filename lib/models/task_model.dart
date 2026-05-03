@@ -20,6 +20,8 @@ class TaskModel {
   final bool isXp;
   final TaskTag? tag;
   bool completed;
+  /// Локальное время отметки «выполнено» (для симметричного отката [UserProfile.completionsBeforeNine]).
+  final DateTime? completedAt;
 
   TaskModel({
     required this.id,
@@ -32,6 +34,7 @@ class TaskModel {
     required this.isXp,
     this.tag,
     this.completed = false,
+    this.completedAt,
   });
 
   TaskModel copyWith({
@@ -45,6 +48,8 @@ class TaskModel {
     bool? isXp,
     TaskTag? tag,
     bool? completed,
+    DateTime? completedAt,
+    bool clearCompletedAt = false,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -57,6 +62,8 @@ class TaskModel {
       isXp: isXp ?? this.isXp,
       tag: tag ?? this.tag,
       completed: completed ?? this.completed,
+      completedAt:
+          clearCompletedAt ? null : (completedAt ?? this.completedAt),
     );
   }
 }

@@ -8,6 +8,8 @@ import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
 import '../models/habit_model.dart';
 import '../models/app_store.dart';
+import '../models/goal_model.dart';
+import '../models/goal_xp_rules.dart';
 import '../models/task_model.dart';
 import 'main_shell.dart';
 
@@ -108,6 +110,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   static int _priorityIndexFromTag(TaskTag? tag) {
     if (tag == null) return 1;
     if (tag.type == TagType.high) return 2;
+    if (tag.type == TagType.repeat) return 0;
     if (tag.text.contains('Низкий')) return 0;
     return 1;
   }
@@ -272,50 +275,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     if (GoogleCalendarService.instance.isSyncEnabled.value)
                       _buildDayEventsSection(),
 
-                    _label('Приоритет'),
-                    Row(
-                      children: List.generate(
-                        _priorities.length,
-                        (i) => Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _priority = i),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              margin: EdgeInsets.only(
-                                  right: i < 2 ? 12 : 0),
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 12),
-                              decoration: BoxDecoration(
-                                color: _priority == i
-                                    ? AppColors.primaryLight
-                                    : AppColors.bgWhite,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: _priority == i
-                                      ? AppColors.primary
-                                      : AppColors.borderDark,
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  _priorities[i],
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                    color: _priority == i
-                                        ? AppColors.primaryDark
-                                        : AppColors.textDark,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
                     ListenableBuilder(
                       listenable: AppStore.instance,
                       builder: (context, _) {
@@ -329,6 +288,51 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     ),
 
                     const SizedBox(height: 20),
+
+                    if (_selectedGoalId != null) ...[
+                      _label('Приоритет'),
+                      Row(
+                        children: List.generate(
+                          _priorities.length,
+                          (i) => Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _priority = i),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                margin: EdgeInsets.only(
+                                    right: i < 2 ? 12 : 0),
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: _priority == i
+                                      ? AppColors.primaryLight
+                                      : AppColors.bgWhite,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _priority == i
+                                        ? AppColors.primary
+                                        : AppColors.borderDark,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    _priorities[i],
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                      color: _priority == i
+                                          ? AppColors.primaryDark
+                                          : AppColors.textDark,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
 
                     if (_selectedGoalId != null)
                       _buildGoalTaskRewardPreview()
@@ -421,17 +425,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             ],
                           ),
                           const SizedBox(height: 10),
-                          Text(
-                            'Награда умножается на приоритет: '
-                            '${_priorities[0].toLowerCase()} ×${_priorityMultipliers[0]} · '
-                            '${_priorities[1].toLowerCase()} ×${_priorityMultipliers[1]} · '
-                            '${_priorities[2].toLowerCase()} ×${_priorityMultipliers[2]}',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 11,
-                              height: 1.25,
+                          if (_selectedGoalId != null)
+                            Text(
+                              'Награда умножается на приоритет: '
+                              '${_priorities[0].toLowerCase()} ×${_priorityMultipliers[0]} · '
+                              '${_priorities[1].toLowerCase()} ×${_priorityMultipliers[1]} · '
+                              '${_priorities[2].toLowerCase()} ×${_priorityMultipliers[2]}',
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 11,
+                                height: 1.25,
+                              ),
+                            )
+                          else
+                            Text(
+                              'Награда зависит от сложности (без приоритета цели).',
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 11,
+                                height: 1.25,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -585,8 +599,25 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       listenable: AppStore.instance,
       builder: (context, _) {
         final n = AppStore.instance.getTasksForGoal(gid).length + 1;
-        final base = (500 / n).round();
-        final xp = math.max(5, (base * _priorityMultiplier).round());
+        GoalModel? goal;
+        for (final g in AppStore.instance.goals) {
+          if (g.id == gid) {
+            goal = g;
+            break;
+          }
+        }
+        final pool = goal?.xpTaskPool ?? GoalXpRules.defaultTaskPool;
+        final completionBonus =
+            goal?.xpCompletionBonus ?? GoalXpRules.defaultCompletionBonus;
+        final base = GoalXpRules.baseSharePerTask(pool, n);
+        final previewTag = TaskTag(
+          text: _priorities[_priority],
+          type: _priority == 2
+              ? TagType.high
+              : (_priority == 0 ? TagType.repeat : TagType.medium),
+        );
+        final xp =
+            GoalXpRules.taskXp(pool: pool, taskCount: n, tag: previewTag);
         return Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -621,8 +652,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Пул цели 500 XP делится на $n задач(у), затем умножается на приоритет '
-                '(${_priorities[_priority].toLowerCase()} ×${_priorityMultiplier.toStringAsFixed(2)}).',
+                'Пул цели — $pool XP на все задачи (хранится в аккаунте). '
+                'После сохранения будет $n задач(и): сначала делим поровну (~$base XP за шаг при «среднем» приоритете), '
+                'затем множитель «${_priorities[_priority].toLowerCase()}» ×${_priorityMultiplier.toStringAsFixed(2)}. '
+                'За эту задачу при выполнении: +$xp XP. '
+                'Когда закроете все задачи цели — ещё +$completionBonus XP бонусом.',
                 style: TextStyle(
                   color: AppColors.textMuted,
                   fontSize: 12,
@@ -1097,6 +1131,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         );
       }
       return false;
+    } on ArgumentError catch (e) {
+      if (mounted) {
+        _toast(e.message ?? 'Проверьте данные', isError: true);
+      }
+      return false;
     } catch (e, st) {
       debugPrint('Firestore save: $e\n$st');
       if (mounted) {
@@ -1120,6 +1159,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           'Проверьте интернет или запустите на реальном устройстве.',
           isError: true,
         );
+      }
+      return null;
+    } on ArgumentError catch (e) {
+      if (mounted) {
+        _toast(e.message ?? 'Проверьте данные', isError: true);
       }
       return null;
     } catch (e, st) {
@@ -1231,8 +1275,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     final currentTasks = store.getTasksForGoal(goalId);
     final n = currentTasks.isEmpty ? 1 : currentTasks.length;
-    final baseXp = (500 / n).round();
-    final xpReward = math.max(5, (baseXp * _priorityMultiplier).round());
+    final pool = goal.xpTaskPool;
+    final xpReward = GoalXpRules.taskXp(
+      pool: pool,
+      taskCount: n,
+      tag: TaskTag(
+        text: _priorities[_priority],
+        type: _priority == 2
+            ? TagType.high
+            : (_priority == 0 ? TagType.repeat : TagType.medium),
+      ),
+    );
 
     final desc = _descController.text.trim();
     final scheduledAt = DateTime(
@@ -1250,7 +1303,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       isXp: true,
       tag: TaskTag(
         text: _priorities[_priority],
-        type: _priority == 2 ? TagType.high : TagType.medium,
+        type: _priority == 2
+            ? TagType.high
+            : (_priority == 0 ? TagType.repeat : TagType.medium),
       ),
     );
 
@@ -1343,8 +1398,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     final currentTasks = store.getTasksForGoal(goalId);
     final newTotal = currentTasks.length + 1;
-    final baseXp = (500 / newTotal).round();
-    final xpReward = math.max(5, (baseXp * _priorityMultiplier).round());
+    final pool = goal.xpTaskPool;
+    final prioTag = TaskTag(
+      text: _priorities[_priority],
+      type: _priority == 2
+          ? TagType.high
+          : (_priority == 0 ? TagType.repeat : TagType.medium),
+    );
+    final xpReward =
+        GoalXpRules.taskXp(pool: pool, taskCount: newTotal, tag: prioTag);
 
     final desc = _descController.text.trim();
     final scheduledAt = DateTime(
@@ -1363,11 +1425,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       scheduledAt: scheduledAt,
       reward: xpReward,
       isXp: true,
-      tag: TaskTag(
-        text: _priorities[_priority],
-        type: _priority == 2 ? TagType.high : TagType.medium,
-      ),
-      completed: false,
+      tag: prioTag,
     );
 
     final ok = await _awaitFirestoreVoid(store.addTask(task));
