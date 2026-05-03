@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
@@ -10,6 +12,7 @@ import '../widgets/goal_card_horizontal.dart';
 import '../widgets/task_item_widget.dart';
 import 'main_shell.dart';
 import 'goal_detail_screen.dart';
+import 'create_habit_screen.dart';
 import 'create_task_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -288,6 +291,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
 
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const CreateHabitScreen(),
+                            ),
+                          );
+                        },
+                        icon: Icon(
+                          Icons.auto_awesome_rounded,
+                          color: AppColors.primary,
+                          size: 20,
+                        ),
+                        label: Text(
+                          'Добавить привычку',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
                     const SizedBox(height: 24),
 
                     // Active Goals
@@ -366,19 +394,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     sameCalendarDay(t.scheduledAt!)))
                             .toList();
 
-                        // Активные: сегодня; быстрая задача (24ч) — всегда в этом блоке до завершения.
-                        final activeHabits = habits
-                            .where((h) =>
-                                !h.completed &&
-                                !h.isExpired &&
-                                h.completedAt == null &&
-                                !_pendingDelete.contains(h.id) &&
-                                !_dismissed.contains(h.id) &&
-                                (h.isQuickTask ||
-                                    h.deadline == null ||
-                                    sameCalendarDay(h.deadline!)))
-                            .take(3)
-                            .toList();
+                        // Активные строки: привычки по слотам времени или одна строка на привычку/задачу.
+                        final activeHabitEntries = <({HabitModel habit, String? slot})>[];
+                        for (final h in habits) {
+                          if (_pendingDelete.contains(h.id) ||
+                              _dismissed.contains(h.id)) {
+                            continue;
+                          }
+                          if (h.isRecurring && h.reminderTimes.isNotEmpty) {
+                            if (!h.matchesRepeatOn(now)) continue;
+                            for (final slot in h.reminderTimes) {
+                              if (!h.completedSlotsForDay(now).contains(slot)) {
+                                activeHabitEntries.add((habit: h, slot: slot));
+                              }
+                            }
+                            continue;
+                          }
+                          if (_isHabitActiveToday(h, now)) {
+                            activeHabitEntries.add((habit: h, slot: null));
+                          }
+                        }
 
                         final upcomingGoalTasks = AppStore.instance.tasks
                             .where((t) =>
@@ -408,14 +443,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         final upcomingCount =
                             upcomingGoalTasks.length + upcomingHabits.length;
 
-                        // Completed today
-                        final completedHabits = habits
-                            .where((h) =>
-                                h.completedAt != null &&
-                                h.completedAt!.year == now.year &&
-                                h.completedAt!.month == now.month &&
-                                h.completedAt!.day == now.day)
-                            .toList();
+                        final completedSlotRows = <(HabitModel, String)>[];
+                        for (final h in habits) {
+                          if (!h.isRecurring || h.reminderTimes.isEmpty) {
+                            continue;
+                          }
+                          if (!h.matchesRepeatOn(now)) continue;
+                          for (final slot in h.reminderTimes) {
+                            if (h.completedSlotsForDay(now).contains(slot)) {
+                              completedSlotRows.add((h, slot));
+                            }
+                          }
+                        }
+
+                        final completedWholeHabits = habits.where((h) {
+                          if (h.isRecurring && h.reminderTimes.isNotEmpty) {
+                            return false;
+                          }
+                          return h.isDoneForLocalDay(now);
+                        }).toList();
+
+                        final completedShownCount =
+                            completedSlotRows.length + completedWholeHabits.length;
 
                         // Expired quick tasks (deadline passed, not completed, not dismissed)
                         final expiredHabits = habits
@@ -445,7 +494,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Text(
-                                    '${activeHabits.length + incompleteGoalTasks.length}',
+                                    '${activeHabitEntries.length + incompleteGoalTasks.length}',
                                     style: TextStyle(
                                       color: AppColors.primary,
                                       fontSize: 12,
@@ -475,9 +524,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 padding: EdgeInsets.only(bottom: 12),
                                 child: Center(child: CircularProgressIndicator()),
                               )
-                            else if (activeHabits.isEmpty &&
+                            else if (activeHabitEntries.isEmpty &&
                                 incompleteGoalTasks.isEmpty &&
-                                completedHabits.isEmpty &&
+                                completedShownCount == 0 &&
                                 expiredHabits.isEmpty &&
                                 upcomingCount == 0)
                               Padding(
@@ -488,7 +537,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                               )
                             else ...[
-                              if (activeHabits.isEmpty &&
+                              if (activeHabitEntries.isEmpty &&
                                   incompleteGoalTasks.isEmpty &&
                                   upcomingCount > 0)
                                 Padding(
@@ -502,11 +551,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ),
                                   ),
                                 ),
-                              for (final habit in activeHabits)
+                              for (final entry in activeHabitEntries)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: Dismissible(
-                                    key: Key(habit.id ?? habit.title),
+                                    key: Key(
+                                        '${entry.habit.id ?? entry.habit.title}_${entry.slot ?? 'main'}'),
                                     direction: DismissDirection.endToStart,
                                     background: Container(
                                       alignment: Alignment.centerRight,
@@ -521,21 +571,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           size: 24),
                                     ),
                                     onDismissed: (_) {
-                                      setState(() => _dismissed.add(habit.id ?? ''));
-                                      _habitService.deleteHabit(habit.id ?? '');
+                                      setState(() =>
+                                          _dismissed.add(entry.habit.id ?? ''));
+                                      _habitService
+                                          .deleteHabit(entry.habit.id ?? '');
                                     },
                                     child: TaskItemWidget(
-                                      task: _habitToTask(habit),
-                                      onToggle: () => _toggleHabit(habit),
+                                      task: _habitToTask(entry.habit,
+                                          reminderSlot: entry.slot),
+                                      onToggle: () {
+                                        if (entry.slot != null) {
+                                          _toggleHabitReminderSlot(
+                                              entry.habit, entry.slot!);
+                                        } else {
+                                          _toggleHabit(entry.habit);
+                                        }
+                                      },
                                       onContentTap: () {
-                                        Navigator.of(context).push<void>(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => CreateTaskScreen(
-                                              isFullPage: true,
-                                              habitToEdit: habit,
+                                        if (entry.habit.isRecurring) {
+                                          Navigator.of(context).push<void>(
+                                            MaterialPageRoute<void>(
+                                              builder: (_) => CreateHabitScreen(
+                                                habitToEdit: entry.habit,
+                                              ),
                                             ),
-                                          ),
-                                        );
+                                          );
+                                        } else {
+                                          Navigator.of(context).push<void>(
+                                            MaterialPageRoute<void>(
+                                              builder: (_) => CreateTaskScreen(
+                                                isFullPage: true,
+                                                habitToEdit: entry.habit,
+                                              ),
+                                            ),
+                                          );
+                                        }
                                       },
                                     ),
                                   ),
@@ -778,7 +848,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ],
 
                               // ── Completed today section ──────────────
-                              if (completedHabits.isNotEmpty) ...[
+                              if (completedShownCount > 0) ...[
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
@@ -786,7 +856,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         size: 16, color: AppColors.primary),
                                     const SizedBox(width: 6),
                                     Text(
-                                      'Выполнено сегодня · ${completedHabits.length}',
+                                      'Выполнено сегодня · $completedShownCount',
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -796,7 +866,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 12),
-                                for (final habit in completedHabits)
+                                for (final row in completedSlotRows)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Dismissible(
+                                      key: Key(
+                                          'done_${row.$1.id}_${row.$2}'),
+                                      direction: DismissDirection.endToStart,
+                                      background: Container(
+                                        alignment: Alignment.centerRight,
+                                        padding: const EdgeInsets.only(right: 20),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.red,
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: const Icon(
+                                            Icons.delete_outline_rounded,
+                                            color: Colors.white,
+                                            size: 24),
+                                      ),
+                                      onDismissed: (_) {
+                                        _habitService.deleteHabit(row.$1.id ?? '');
+                                      },
+                                      child: Opacity(
+                                        opacity: 0.6,
+                                        child: TaskItemWidget(
+                                          task: _habitToTask(row.$1,
+                                              reminderSlot: row.$2),
+                                          onToggle: () =>
+                                              _toggleHabitReminderSlot(
+                                                  row.$1, row.$2),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                for (final habit in completedWholeHabits)
                                   Padding(
                                     padding: const EdgeInsets.only(bottom: 10),
                                     child: Dismissible(
@@ -982,6 +1086,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _toggleHabitReminderSlot(HabitModel h, String slotHm) async {
+    final now = DateTime.now();
+    final todayKey = HabitModel.dateKeyLocal(now);
+    var done = List<String>.from(h.completedSlotsForDay(now));
+
+    if (done.contains(slotHm)) {
+      done.remove(slotHm);
+      await _habitService.updateHabit(
+        h.copyWith(
+          completedSlotsToday: done,
+          slotsProgressDateKey: todayKey,
+          completed: false,
+          clearCompletedAt: true,
+          clearLastCompletedDateKey: true,
+        ),
+      );
+      if (mounted) setState(() {});
+      return;
+    }
+
+    done.add(slotHm);
+    done.sort();
+    var patch = h.copyWith(
+      completedSlotsToday: done,
+      slotsProgressDateKey: todayKey,
+    );
+    final allDone = h.reminderTimes.every((t) => done.contains(t));
+    if (allDone) {
+      patch = patch.copyWith(
+        lastCompletedDateKey: todayKey,
+        completed: true,
+        completedAt: now,
+      );
+    }
+    await _habitService.updateHabit(patch);
+    final n = h.reminderTimes.length;
+    final xpPer = n > 0
+        ? math.max(1, (h.xpReward / n).round())
+        : h.xpReward;
+    await AppStore.instance.completeHabitTask(xpReward: xpPer, coinReward: 0);
+    if (mounted) {
+      MainShell.of(context).showToast('+$xpPer XP · $slotHm');
+      setState(() {});
+    }
+  }
+
   Future<void> _toggleHabit(HabitModel habit) async {
     final id = habit.id ?? '';
     if (_pendingDelete.contains(id)) {
@@ -1027,7 +1177,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _deleteTimers[id]?.cancel();
     _deleteTimers.remove(id);
     setState(() => _pendingDelete.remove(id));
-    _habitService.updateHabit(habit.copyWith(completed: false, clearCompletedAt: true));
+    _habitService.updateHabit(
+      habit.copyWith(
+        completed: false,
+        clearCompletedAt: true,
+        clearLastCompletedDateKey: true,
+      ),
+    );
     ScaffoldMessenger.of(context).clearSnackBars();
   }
 
@@ -1042,13 +1198,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
       coinReward: habit.coinReward,
     );
     await _habitService.updateHabit(
-      habit.copyWith(completed: true, completedAt: DateTime.now()),
+      habit.copyWith(
+        completed: true,
+        completedAt: DateTime.now(),
+        lastCompletedDateKey: HabitModel.dateKeyLocal(DateTime.now()),
+      ),
     );
   }
 
-  tm.TaskModel _habitToTask(HabitModel habit) {
+  /// Показать в блоке «Задачи на сегодня» (до отметки и таймера награды).
+  /// Привычки с [HabitModel.reminderTimes] разбиваются на строки по слотам — здесь не участвуют.
+  bool _isHabitActiveToday(HabitModel h, DateTime now) {
+    if (h.isRecurring && h.reminderTimes.isNotEmpty) {
+      return false;
+    }
+    if (h.isQuickTask) {
+      return !h.completed &&
+          !h.isExpired &&
+          h.completedAt == null &&
+          (h.deadline == null || _sameCalendarDay(h.deadline!, now));
+    }
+    if (h.isRecurring) {
+      if (!h.matchesRepeatOn(now)) return false;
+      if (h.isDoneForLocalDay(now)) return false;
+      if (h.isExpired) return false;
+      return true;
+    }
+    return !h.completed &&
+        !h.isExpired &&
+        h.completedAt == null &&
+        (h.deadline == null || _sameCalendarDay(h.deadline!, now));
+  }
+
+  bool _sameCalendarDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  tm.TaskModel _habitToTask(HabitModel habit, {String? reminderSlot}) {
+    final now = DateTime.now();
+    final doneToday = reminderSlot != null
+        ? habit.completedSlotsForDay(now).contains(reminderSlot)
+        : habit.isDoneForLocalDay(now);
     String subtitle;
-    if (habit.notes.isNotEmpty) {
+    if (reminderSlot != null) {
+      subtitle = habit.notes.isNotEmpty
+          ? '🕐 $reminderSlot · ${habit.notes}'
+          : '🕐 $reminderSlot · привычка';
+    } else if (habit.isRecurring) {
+      if (habit.repeatWeekdays.isEmpty) {
+        subtitle = habit.notes.isNotEmpty
+            ? 'Привычка · каждый день · ${habit.notes}'
+            : 'Привычка · каждый день';
+      } else {
+        const names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        final days =
+            [...habit.repeatWeekdays]..sort((a, b) => a.compareTo(b));
+        final label = days.map((d) => names[d - 1]).join(', ');
+        subtitle = habit.notes.isNotEmpty
+            ? 'Привычка · $label · ${habit.notes}'
+            : 'Привычка · $label';
+      }
+    } else if (habit.notes.isNotEmpty) {
       subtitle = habit.notes;
     } else if (habit.isQuickTask && habit.deadline != null) {
       if (habit.isExpired) {
@@ -1087,7 +1296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       subtitle: subtitle,
       reward: reward,
       isXp: isXp,
-      completed: habit.completed,
+      completed: doneToday,
     );
   }
 

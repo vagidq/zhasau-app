@@ -277,6 +277,10 @@ class GoogleCalendarService {
     final parts = <String>[];
     parts.add('Zhasau задача');
     if (habit.isQuickTask) parts.add('⚡ Быстрая задача');
+    if (habit.isRecurring) parts.add('🔁 Повтор по дням');
+    if (habit.reminderTimes.isNotEmpty) {
+      parts.add('Время: ${habit.reminderTimes.join(', ')}');
+    }
     if (habit.notes.isNotEmpty) parts.add(habit.notes);
     parts.add('XP: +${habit.xpReward}');
     if (habit.completed) parts.add('✅ Выполнено');

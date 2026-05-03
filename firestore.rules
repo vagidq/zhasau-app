@@ -3,7 +3,7 @@ rules_version = '2';
 //   users/{uid}                    — профиль (name, bio, photoUrl, xp, …)
 //   users/{uid}/goals/{goalId}
 //   users/{uid}/tasks/{taskId}
-//   users/{uid}/habits/{habitId}
+//   users/{uid}/habits/{habitId}   — reminderTimes, completedSlotsToday, slotsProgressDateKey, …
 // Корневые коллекции tasks/goals/habits и т.д. клиентом не используются — закрыты явно.
 service cloud.firestore {
   match /databases/{database}/documents {
