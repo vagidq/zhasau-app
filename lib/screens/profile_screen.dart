@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../achievements/achievement_catalog.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
 import 'settings_screen.dart';
@@ -39,36 +40,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (maxActivity == 0) return 0.0;
       return activity[i] / maxActivity;
     });
-    final achievements = [
-      _Achievement(
-          icon: Icons.wb_sunny_rounded,
-          label: 'Ранняя\nпташка',
-          description: 'Выполнить 5 задач до 9:00 утра',
-          color: AppColors.warningLight,
-          iconColor: AppColors.warning,
-          locked: false),
-      _Achievement(
-          icon: Icons.directions_run_rounded,
-          label: 'Марафонец',
-          description: 'Поддерживать серию 7 дней подряд',
-          color: AppColors.primaryLight,
-          iconColor: AppColors.primary,
-          locked: false),
-      _Achievement(
-          icon: Icons.workspace_premium_rounded,
-          label: 'Эксперт',
-          description: 'Достигнуть 10 уровня пользователя',
-          color: AppColors.blueLight,
-          iconColor: AppColors.blue,
-          locked: false),
-      _Achievement(
-          icon: Icons.lock_rounded,
-          label: 'Мастер',
-          description: 'Завершить 100 задач с высоким приоритетом',
-          color: AppColors.border,
-          iconColor: AppColors.textLight,
-          locked: true),
-    ];
+    final unlocked = user.unlockedAchievements.toSet();
+    final achievements = kAchievementCatalog
+        .map(
+          (def) {
+            final isUnlocked = unlocked.contains(def.id);
+            var color = def.color;
+            var iconColor = def.iconColor;
+            if (def.id == AchievementIds.priorityMaster && isUnlocked) {
+              color = AppColors.warningLight;
+              iconColor = AppColors.warning;
+            }
+            return _Achievement(
+            icon: !isUnlocked &&
+                    def.id == AchievementIds.priorityMaster
+                ? Icons.lock_rounded
+                : def.icon,
+            label: def.label,
+            description: def.description,
+            color: color,
+            iconColor: iconColor,
+            locked: !isUnlocked,
+          );
+          },
+        )
+        .toList();
 
     return Scaffold(
       backgroundColor: AppColors.bgMain,
@@ -184,7 +180,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text('Опытный планировщик',
+                    Text(
+                      user.plannerRankTitle,
                       style: TextStyle(
                         color: AppColors.primaryDark,
                         fontWeight: FontWeight.w500,

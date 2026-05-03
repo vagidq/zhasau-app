@@ -1,3 +1,5 @@
+import 'dart:math' show max;
+
 import 'package:flutter/foundation.dart';
 
 class UserProfile {
@@ -16,6 +18,12 @@ class UserProfile {
   List<int> weeklyActivity;
   List<int> weeklyXp;
   List<int> weeklyCoins;
+  /// Id из [kAchievementCatalog], дублируются в Firestore `unlockedAchievements`.
+  List<String> unlockedAchievements;
+  /// Завершения задач целей с тегом «высокий» приоритет (для достижения «Мастер»).
+  int highPriorityCompletions;
+  /// Сколько раз отметили выполнение до 9:00 местного времени (задачи и привычки).
+  int completionsBeforeNine;
 
   UserProfile({
     required this.id,
@@ -30,9 +38,13 @@ class UserProfile {
     List<int>? weeklyActivity,
     List<int>? weeklyXp,
     List<int>? weeklyCoins,
+    List<String>? unlockedAchievements,
+    this.highPriorityCompletions = 0,
+    this.completionsBeforeNine = 0,
   }) : weeklyActivity = weeklyActivity ?? List.filled(7, 0),
        weeklyXp = weeklyXp ?? List.filled(7, 0),
-       weeklyCoins = weeklyCoins ?? List.filled(7, 0);
+       weeklyCoins = weeklyCoins ?? List.filled(7, 0),
+       unlockedAchievements = List<String>.from(unlockedAchievements ?? []);
 
   // Calculate current level based on XP
   int calculateLevel(int totalXp) {
@@ -99,6 +111,63 @@ class UserProfile {
     return xpPerLevel - (xp % xpPerLevel);
   }
 
+  /// Звание в профиле по данным из БД: [completedTasks], [level], [streak].
+  ///
+  /// Берётся **наивысший** ранг из трёх шкал (кто больше натянул — тот ранг и показываем).
+  /// Пока нет ни одного завершённого дела ([completedTasks] == 0), ранг не выше
+  /// «Начинающий» (даже при странном уровне в данных), без «Опытный» из ниоткуда.
+  String get plannerRankTitle {
+    int tierTasks(int t) {
+      if (t <= 0) return 0;
+      if (t < 10) return 1;
+      if (t < 50) return 2;
+      if (t < 150) return 3;
+      return 4;
+    }
+
+    int tierLevel(int l) {
+      if (l <= 1) return 0;
+      if (l == 2) return 1;
+      if (l <= 4) return 2;
+      if (l <= 9) return 3;
+      return 4;
+    }
+
+    /// Дни подряд с отметками (серия).
+    int tierStreak(int s) {
+      if (s <= 0) return 0;
+      if (s < 7) return 1;
+      if (s < 14) return 2;
+      if (s < 30) return 3;
+      return 4;
+    }
+
+    final tt = tierTasks(completedTasks);
+    final tl = tierLevel(level);
+    final ts = tierStreak(streak);
+    final raw = max(tt, max(tl, ts));
+
+    final int tier;
+    if (completedTasks == 0) {
+      tier = raw.clamp(0, 1);
+    } else {
+      tier = raw;
+    }
+
+    switch (tier) {
+      case 0:
+        return 'Новичок';
+      case 1:
+        return 'Начинающий планировщик';
+      case 2:
+        return 'Активный планировщик';
+      case 3:
+        return 'Опытный планировщик';
+      default:
+        return 'Мастер планирования';
+    }
+  }
+
   // Create copy with updates
   UserProfile copyWith({
     String? name,
@@ -112,6 +181,9 @@ class UserProfile {
     List<int>? weeklyActivity,
     List<int>? weeklyXp,
     List<int>? weeklyCoins,
+    List<String>? unlockedAchievements,
+    int? highPriorityCompletions,
+    int? completionsBeforeNine,
   }) {
     return UserProfile(
       id: id,
@@ -126,6 +198,11 @@ class UserProfile {
       weeklyActivity: weeklyActivity ?? List.of(this.weeklyActivity),
       weeklyXp: weeklyXp ?? List.of(this.weeklyXp),
       weeklyCoins: weeklyCoins ?? List.of(this.weeklyCoins),
+      unlockedAchievements: unlockedAchievements ?? List.of(this.unlockedAchievements),
+      highPriorityCompletions:
+          highPriorityCompletions ?? this.highPriorityCompletions,
+      completionsBeforeNine:
+          completionsBeforeNine ?? this.completionsBeforeNine,
     );
   }
 }

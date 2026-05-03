@@ -1,6 +1,6 @@
 rules_version = '2';
 // Схема приложения Zhasau (клиент Flutter):
-//   users/{uid}                    — профиль
+//   users/{uid}                    — профиль (xp, streak, unlockedAchievements, …)
 //   users/{uid}/goals/{goalId}
 //   users/{uid}/tasks/{taskId}
 //   users/{uid}/habits/{habitId}

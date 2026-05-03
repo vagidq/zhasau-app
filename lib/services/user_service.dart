@@ -195,6 +195,9 @@ class UserService {
       'completedTasks': 0,
       'streak': 0,
       'lastTaskCompletedDate': null,
+      'unlockedAchievements': <String>[],
+      'highPriorityCompletions': 0,
+      'completionsBeforeNine': 0,
     });
   }
 

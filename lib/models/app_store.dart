@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import '../achievements/achievement_catalog.dart';
 import '../models/goal_model.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
@@ -122,8 +123,16 @@ class AppStore extends ChangeNotifier {
           weeklyActivity: weeklyActivity,
           weeklyXp: weeklyXp,
           weeklyCoins: weeklyCoins,
+          unlockedAchievements: _parseStringIdList(data['unlockedAchievements']),
+          highPriorityCompletions:
+              (data['highPriorityCompletions'] as num?)?.toInt() ?? 0,
+          completionsBeforeNine:
+              (data['completionsBeforeNine'] as num?)?.toInt() ?? 0,
         );
         _hasProfile = true;
+        if (_mergeNewAchievements()) {
+          unawaited(_persistUserProfile());
+        }
         notifyListeners();
       });
 
@@ -273,6 +282,8 @@ class AppStore extends ChangeNotifier {
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
       _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
+      _bumpCompletionStatsForAchievements(task: updatedTask);
+      _mergeNewAchievements();
       notifyListeners();
       _persistUserProfile();
     } else if (wasCompleted && !isNowCompleted) {
@@ -284,6 +295,10 @@ class AppStore extends ChangeNotifier {
       if (updatedTask.isXp && updatedTask.reward > 0) {
         _userProfile.xp = (_userProfile.xp - updatedTask.reward).toInt();
         if (_userProfile.xp < 0) _userProfile.xp = 0;
+      }
+      if (oldTask.tag?.type == TagType.high &&
+          _userProfile.highPriorityCompletions > 0) {
+        _userProfile.highPriorityCompletions -= 1;
       }
       _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
       if (_userProfile.completedTasks > 0) _userProfile.completedTasks -= 1;
@@ -379,6 +394,8 @@ class AppStore extends ChangeNotifier {
       _userProfile.incrementCompletedTasks();
       _userProfile.updateStreak();
       _userProfile.incrementWeeklyActivity(xp: gainedXp, coins: gainedCoins);
+      _bumpCompletionStatsForAchievements(task: task);
+      _mergeNewAchievements();
       notifyListeners(); // update UI (coins/XP) immediately
       _persistUserProfile();
     }
@@ -419,8 +436,40 @@ class AppStore extends ChangeNotifier {
     _userProfile.incrementCompletedTasks();
     _userProfile.updateStreak();
     _userProfile.incrementWeeklyActivity(xp: xpReward, coins: coinReward);
+    _bumpCompletionStatsForAchievements(task: null);
+    _mergeNewAchievements();
     await _persistUserProfile();
     notifyListeners();
+  }
+
+  List<String> _parseStringIdList(dynamic raw) {
+    if (raw is! List) return [];
+    return raw
+        .map((e) => e.toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  void _bumpCompletionStatsForAchievements({TaskModel? task}) {
+    final now = DateTime.now();
+    if (now.hour < 9) {
+      _userProfile.completionsBeforeNine += 1;
+    }
+    if (task != null && task.tag?.type == TagType.high) {
+      _userProfile.highPriorityCompletions += 1;
+    }
+  }
+
+  bool _mergeNewAchievements() {
+    final newIds = newlyUnlockedAchievementIds(_userProfile);
+    if (newIds.isEmpty) return false;
+    final merged = <String>{
+      ..._userProfile.unlockedAchievements,
+      ...newIds,
+    }.toList()
+      ..sort();
+    _userProfile.unlockedAchievements = merged;
+    return true;
   }
 
   Future<void> _persistUserProfile() async {
@@ -438,6 +487,9 @@ class AppStore extends ChangeNotifier {
         'weeklyActivity': _userProfile.weeklyActivity,
         'weeklyXp': _userProfile.weeklyXp,
         'weeklyCoins': _userProfile.weeklyCoins,
+        'unlockedAchievements': _userProfile.unlockedAchievements,
+        'highPriorityCompletions': _userProfile.highPriorityCompletions,
+        'completionsBeforeNine': _userProfile.completionsBeforeNine,
       });
     } catch (e) {
       debugPrint('Error persisting user profile: $e');
