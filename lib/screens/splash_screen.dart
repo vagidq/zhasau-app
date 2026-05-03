@@ -71,10 +71,14 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       AppStore.instance.initializeEmptyProfile();
       final localName = await _localAuthService.getName();
+      final localEmail = await _localAuthService.getEmail();
       if (localName != null && localName.isNotEmpty) {
         AppStore.instance.userProfile.name = localName;
-        AppStore.instance.refreshUI();
       }
+      if (localEmail != null && localEmail.isNotEmpty) {
+        AppStore.instance.userProfile.email = localEmail;
+      }
+      AppStore.instance.refreshUI();
     }
 
     if (!mounted) return;

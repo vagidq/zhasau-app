@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
@@ -69,15 +70,40 @@ class _RegisterScreenState extends State<RegisterScreen>
       try {
         await _authService.signUp(email, password);
         await _authService.updateDisplayName(name);
-        await _userService.initializeUserProfile(name);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка регистрации: ${_mapAuthError(e)}')),
+        );
+        return;
+      }
+
+      try {
+        await _userService.initializeUserProfile(name, email: email);
+      } catch (e, st) {
+        debugPrint('initialize_USER_PROFILE_FAILED: $e\n$st');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Аккаунт создан, но профиль в облаке не сохранился. '
+                'Проверьте интернет и консоль Firebase (Firestore). Подробности в логе.',
+              ),
+            ),
+          );
+        }
+      }
+
+      try {
         await AppStore.instance.loadUserData();
-      } catch (_) {
-        // Fallback for demo if Firebase auth/config is unavailable.
+      } catch (e, st) {
+        debugPrint('LOAD_USER_DATA_FAILED: $e\n$st');
         AppStore.instance.initializeEmptyProfile();
         AppStore.instance.userProfile.name = name;
+        AppStore.instance.userProfile.email = email;
         AppStore.instance.refreshUI();
       }
-      // Always save credentials locally as fallback for future logins
+
       await _localAuthService.signUp(
         name: name,
         email: email,
@@ -94,21 +120,34 @@ class _RegisterScreenState extends State<RegisterScreen>
               FadeTransition(opacity: anim, child: child),
         ),
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка регистрации: ${_mapAuthError(e)}')),
-      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   String _mapAuthError(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'email-already-in-use':
+          return 'Этот email уже зарегистрирован';
+        case 'weak-password':
+          return 'Слишком слабый пароль';
+        case 'invalid-email':
+          return 'Некорректный email';
+        case 'operation-not-allowed':
+          return 'В Firebase Console отключён вход по email/паролю. Откройте проект → Authentication → Sign-in method → включите «Email/Password».';
+        case 'network-request-failed':
+          return 'Нет подключения к сети';
+      }
+    }
     final message = error.toString();
     if (message.contains('email-already-in-use')) return 'Этот email уже зарегистрирован';
     if (message.contains('weak-password')) return 'Слишком слабый пароль';
     if (message.contains('invalid-email')) return 'Некорректный email';
+    if (message.contains('operation-not-allowed') ||
+        message.contains('sign-in provider is disabled')) {
+      return 'В Firebase Console включите способ входа «Email/Password» (Authentication → Sign-in method).';
+    }
     return 'Не удалось создать аккаунт';
   }
 

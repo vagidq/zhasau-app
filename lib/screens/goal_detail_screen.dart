@@ -3,7 +3,7 @@ import '../theme/app_colors.dart';
 import '../models/app_store.dart';
 import '../models/task_model.dart';
 import '../widgets/task_item_widget.dart';
-import 'dart:math';
+import 'create_task_screen.dart';
 
 class GoalDetailScreen extends StatefulWidget {
   final String goalId;
@@ -283,6 +283,18 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               child: TaskItemWidget(
                                 task: t,
                                 onToggle: () => _toggleTask(t, goalTasks),
+                                onContentTap: t.completed
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).push<void>(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => CreateTaskScreen(
+                                              isFullPage: true,
+                                              taskToEdit: t,
+                                            ),
+                                          ),
+                                        );
+                                      },
                               ),
                             ),
                           ),
@@ -299,7 +311,16 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               right: 20,
               bottom: 20,
               child: GestureDetector(
-                onTap: () => _showAddTaskSheet(context),
+                onTap: () {
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CreateTaskScreen(
+                        isFullPage: true,
+                        initialGoalId: widget.goalId,
+                      ),
+                    ),
+                  );
+                },
                 child: Container(
                   width: 60,
                   height: 60,
@@ -344,104 +365,4 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     }
   }
 
-  void _showAddTaskSheet(BuildContext context) {
-    final titleCtrl = TextEditingController();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-          decoration: BoxDecoration(
-            color: AppColors.bgWhite,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.borderDark,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text('Новая задача',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark,
-                )),
-              const SizedBox(height: 16),
-              TextField(
-                controller: titleCtrl,
-                autofocus: true,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: 'Название задачи',
-                  hintStyle: TextStyle(color: AppColors.textLight),
-                  filled: true,
-                  fillColor: AppColors.bgMain,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                    elevation: 0,
-                  ),
-                  onPressed: () {
-                    final title = titleCtrl.text.trim();
-                    if (title.isEmpty) return;
-
-                    final currentTasks =
-                        AppStore.instance.getTasksForGoal(widget.goalId);
-                    final newTotal = currentTasks.length + 1;
-                    final xpPerTask = (500 / newTotal).round();
-
-                    final newTask = TaskModel(
-                      id: 'task_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}',
-                      title: title,
-                      subtitle: 'Цель: ${AppStore.instance.goals.firstWhere((g) => g.id == widget.goalId).title}',
-                      goalId: widget.goalId,
-                      reward: xpPerTask,
-                      isXp: true,
-                      completed: false,
-                    );
-
-                    AppStore.instance.addTask(newTask);
-                    Navigator.of(ctx).pop();
-                  },
-                  child: const Text('Добавить задачу',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w600)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

@@ -106,19 +106,29 @@ class UserService {
       'tagText': task.tag?.text,
       'tagType': task.tag?.type.toString().split('.').last,
       'completed': task.completed,
+      if (task.scheduledAt != null)
+        'scheduledAt': task.scheduledAt!.toIso8601String(),
+      if (task.calendarEventId != null) 'calendarEventId': task.calendarEventId,
     });
   }
 
   Future<void> updateTask(TaskModel task) async {
-    await _tasksCollection.doc(task.id).update({
+    final patch = <String, dynamic>{
       'title': task.title,
       'subtitle': task.subtitle,
       'reward': task.reward,
       'isXp': task.isXp,
       'tagText': task.tag?.text,
-      'tagType': task.tag?.type.toString(),
+      'tagType': task.tag?.type.toString().split('.').last,
       'completed': task.completed,
-    });
+    };
+    if (task.scheduledAt != null) {
+      patch['scheduledAt'] = task.scheduledAt!.toIso8601String();
+    }
+    if (task.calendarEventId != null) {
+      patch['calendarEventId'] = task.calendarEventId;
+    }
+    await _tasksCollection.doc(task.id).update(patch);
   }
 
   Future<void> deleteTask(String taskId) async {
@@ -149,11 +159,21 @@ class UserService {
           tag = TaskTag(text: data['tagText'], type: tagType);
         }
 
+        DateTime? scheduledAt;
+        final scheduledRaw = data['scheduledAt'];
+        if (scheduledRaw is String) {
+          scheduledAt = DateTime.tryParse(scheduledRaw);
+        } else if (scheduledRaw is Timestamp) {
+          scheduledAt = scheduledRaw.toDate();
+        }
+
         return TaskModel(
           id: data['id'] ?? doc.id,
           title: data['title'] ?? '',
           subtitle: data['subtitle'] ?? '',
           goalId: data['goalId'],
+          scheduledAt: scheduledAt,
+          calendarEventId: data['calendarEventId'] as String?,
           reward: (data['reward'] as num?) ?? 0,
           isXp: data['isXp'] ?? true,
           tag: tag,
@@ -164,9 +184,10 @@ class UserService {
   }
 
   // User profile
-  Future<void> initializeUserProfile(String name) async {
+  Future<void> initializeUserProfile(String name, {String? email}) async {
     await _firestore.collection('users').doc(userId).set({
       'name': name,
+      if (email != null && email.isNotEmpty) 'email': email,
       'level': 1,
       'xp': 0,
       'xpMax': 1000,

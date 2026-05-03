@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'google_auth_client.dart';
 import '../models/habit_model.dart';
 import '../models/goal_model.dart';
+import '../models/task_model.dart';
 
 /// Service for Google Calendar two-way sync.
 ///
@@ -276,9 +277,68 @@ class GoogleCalendarService {
     final parts = <String>[];
     parts.add('Zhasau задача');
     if (habit.isQuickTask) parts.add('⚡ Быстрая задача');
+    if (habit.notes.isNotEmpty) parts.add(habit.notes);
     parts.add('XP: +${habit.xpReward}');
     if (habit.completed) parts.add('✅ Выполнено');
     return parts.join('\n');
+  }
+
+  /// Текст в описании событий, созданных приложением (не считать «внешними»).
+  static bool _isZhasauOwnedCalendarDescription(String? description) {
+    final desc = description ?? '';
+    return desc.contains('Zhasau задача') ||
+        desc.contains('Zhasau цель') ||
+        desc.contains('Zhasau·task·goal');
+  }
+
+  // ── Sync goal-linked tasks (TaskModel) ↔ Calendar ───────────────────────────
+
+  /// Создаёт или обновляет событие для задачи цели ([TaskModel.goalId] не null).
+  Future<String?> syncGoalTaskToCalendar(TaskModel task, GoalModel goal) async {
+    if (!_ready) return null;
+    if (task.goalId == null || task.goalId!.isEmpty) return null;
+    if (!await _ensureAuth()) return null;
+
+    final start = task.scheduledAt ?? DateTime.now();
+    final end = start.add(const Duration(hours: 1));
+    final description = _buildGoalTaskDescription(task, goal);
+
+    if (task.calendarEventId != null && task.calendarEventId!.isNotEmpty) {
+      final updated = await updateEvent(
+        eventId: task.calendarEventId!,
+        title: _goalTaskEventTitle(task),
+        description: description,
+        start: start,
+        end: end,
+        colorId: task.completed ? '2' : '9',
+      );
+      return updated ? task.calendarEventId : null;
+    }
+
+    return createEvent(
+      title: _goalTaskEventTitle(task),
+      description: description,
+      start: start,
+      end: end,
+      reminderMinutes: const [30, 10],
+      colorId: task.completed ? '2' : '9',
+    );
+  }
+
+  String _goalTaskEventTitle(TaskModel task) {
+    if (task.completed) return '✅ ${task.title}';
+    return '📌 ${task.title}';
+  }
+
+  String _buildGoalTaskDescription(TaskModel task, GoalModel goal) {
+    final lines = <String>[
+      'Zhasau·task·goal',
+      'Цель: ${goal.title}',
+      task.subtitle,
+      'Награда: ${task.reward.toInt()} XP',
+    ];
+    if (task.completed) lines.add('✅ Выполнено');
+    return lines.join('\n');
   }
 
   // ── Sync Goals ↔ Calendar ──────────────────────────────────────────────────
@@ -359,11 +419,7 @@ class GoogleCalendarService {
 
     final events = await listEvents(timeMin: start, timeMax: end);
 
-    // Filter out Zhasau-created events
-    return events.where((e) {
-      final desc = e.description ?? '';
-      return !desc.contains('Zhasau задача') && !desc.contains('Zhasau цель');
-    }).toList();
+    return events.where((e) => !_isZhasauOwnedCalendarDescription(e.description)).toList();
   }
 
   /// Fetch ALL events for a specific date (including Zhasau-created).

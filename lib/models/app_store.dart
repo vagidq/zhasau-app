@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../models/goal_model.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
+import '../services/google_calendar_service.dart';
 import '../services/user_service.dart';
 
 class AppStore extends ChangeNotifier {
@@ -13,7 +16,17 @@ class AppStore extends ChangeNotifier {
 
   final List<GoalModel> _goals = [];
   final List<TaskModel> _tasks = [];
-  late UserProfile _userProfile;
+  /// Safe default until Firestore emits or [initializeEmptyProfile] runs.
+  UserProfile _userProfile = UserProfile(
+    id: '',
+    name: 'Пользователь',
+    email: null,
+    level: 1,
+    xp: 0,
+    coins: 0,
+    completedTasks: 0,
+    streak: 0,
+  );
 
   List<GoalModel> get goals => List.unmodifiable(_goals);
   List<TaskModel> get tasks => List.unmodifiable(_tasks);
@@ -25,13 +38,52 @@ class AppStore extends ChangeNotifier {
   bool _hasProfile = false;
   bool get hasProfile => _hasProfile;
 
+  StreamSubscription<dynamic>? _userProfileSub;
+  StreamSubscription<dynamic>? _goalsSub;
+  StreamSubscription<dynamic>? _tasksSub;
+
+  /// Сброс кэша и отписка от Firestore при выходе или перед сменой аккаунта.
+  Future<void> resetSession() async {
+    await _userProfileSub?.cancel();
+    await _goalsSub?.cancel();
+    await _tasksSub?.cancel();
+    _userProfileSub = null;
+    _goalsSub = null;
+    _tasksSub = null;
+
+    _goals.clear();
+    _tasks.clear();
+    _hasProfile = false;
+    _userProfile = UserProfile(
+      id: '',
+      name: 'Пользователь',
+      email: null,
+      level: 1,
+      xp: 0,
+      coins: 0,
+      completedTasks: 0,
+      streak: 0,
+    );
+    notifyListeners();
+  }
+
   Future<void> loadUserData() async {
+    await _userProfileSub?.cancel();
+    await _goalsSub?.cancel();
+    await _tasksSub?.cancel();
+    _userProfileSub = null;
+    _goalsSub = null;
+    _tasksSub = null;
+
+    _goals.clear();
+    _tasks.clear();
+
     _isLoading = true;
     notifyListeners();
 
     try {
       // User profile (XP/level/coins/streak)
-      _userService.getUserProfile().listen((data) {
+      _userProfileSub = _userService.getUserProfile().listen((data) {
         if (data == null) {
           // If user doc doesn't exist yet, keep existing profile or init empty
           if (!_hasProfile) {
@@ -48,6 +100,7 @@ class AppStore extends ChangeNotifier {
         _userProfile = UserProfile(
           id: _userService.userId,
           name: (data['name'] as String?) ?? 'Пользователь',
+          email: data['email'] as String?,
           level: (data['level'] as num?)?.toInt() ?? 1,
           xp: (data['xp'] as num?)?.toInt() ?? 0,
           coins: (data['coins'] as num?)?.toInt() ?? 0,
@@ -62,14 +115,13 @@ class AppStore extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Listen to changes
-      _userService.getGoals().listen((goals) {
+      _goalsSub = _userService.getGoals().listen((goals) {
         _goals.clear();
         _goals.addAll(goals);
         notifyListeners();
       });
 
-      _userService.getTasks().listen((tasks) {
+      _tasksSub = _userService.getTasks().listen((tasks) {
         _tasks.clear();
         _tasks.addAll(tasks);
         notifyListeners();
@@ -139,6 +191,14 @@ class AppStore extends ChangeNotifier {
     if (goalIndex == -1) return;
 
     final goal = _goals[goalIndex];
+    final tasksForGoal =
+        _tasks.where((t) => t.goalId == goalId).toList(growable: false);
+
+    await _deleteCalendarEventIfAny(goal.calendarEventId);
+    for (final t in tasksForGoal) {
+      await _deleteCalendarEventIfAny(t.calendarEventId);
+    }
+
     _goals.removeAt(goalIndex);
     _tasks.removeWhere((t) => t.goalId == goalId);
     notifyListeners();
@@ -147,9 +207,17 @@ class AppStore extends ChangeNotifier {
       await _userService.deleteGoal(goalId);
     } catch (e) {
       _goals.insert(goalIndex, goal);
+      _tasks.addAll(tasksForGoal);
       notifyListeners();
       rethrow;
     }
+  }
+
+  Future<void> _deleteCalendarEventIfAny(String? eventId) async {
+    if (eventId == null || eventId.isEmpty) return;
+    try {
+      await GoogleCalendarService.instance.deleteEvent(eventId);
+    } catch (_) {}
   }
 
   Future<void> addTask(TaskModel task) async {
@@ -158,6 +226,9 @@ class AppStore extends ChangeNotifier {
 
     try {
       await _userService.addTask(task);
+      if (task.goalId != null && task.goalId!.isNotEmpty) {
+        _scheduleGoalTaskCalendarSync(task.id);
+      }
     } catch (e) {
       _tasks.remove(task);
       notifyListeners();
@@ -201,8 +272,68 @@ class AppStore extends ChangeNotifier {
 
     try {
       await _userService.updateTask(updatedTask);
+      if (updatedTask.goalId != null && updatedTask.goalId!.isNotEmpty) {
+        _scheduleGoalTaskCalendarSync(updatedTask.id);
+      }
     } catch (e) {
       _tasks[index] = oldTask;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Не блокировать UI ожиданием Calendar API (часто висит на эмуляторе).
+  void _scheduleGoalTaskCalendarSync(String taskId) {
+    if (!GoogleCalendarService.instance.isSyncEnabled.value) return;
+    Future.microtask(() async {
+      try {
+        await _syncGoalTaskCalendar(taskId)
+            .timeout(const Duration(seconds: 25));
+      } catch (e, st) {
+        debugPrint('Goal task calendar sync: $e\n$st');
+      }
+    });
+  }
+
+  Future<void> _syncGoalTaskCalendar(String taskId) async {
+    if (!GoogleCalendarService.instance.isSyncEnabled.value) return;
+
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    final task = _tasks[index];
+    final gid = task.goalId;
+    if (gid == null || gid.isEmpty) return;
+
+    final goalIndex = _goals.indexWhere((g) => g.id == gid);
+    if (goalIndex == -1) return;
+
+    final goal = _goals[goalIndex];
+    final eventId =
+        await GoogleCalendarService.instance.syncGoalTaskToCalendar(task, goal);
+
+    if (eventId != null &&
+        eventId.isNotEmpty &&
+        eventId != task.calendarEventId) {
+      await _mergeCalendarEventId(taskId, eventId);
+    }
+  }
+
+  Future<void> _mergeCalendarEventId(String taskId, String eventId) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    final task = _tasks[index];
+    if (task.calendarEventId == eventId) return;
+
+    final merged = task.copyWith(calendarEventId: eventId);
+    _tasks[index] = merged;
+    notifyListeners();
+
+    try {
+      await _userService.updateTask(merged);
+    } catch (e) {
+      _tasks[index] = task;
       notifyListeners();
       rethrow;
     }
@@ -230,6 +361,9 @@ class AppStore extends ChangeNotifier {
     if (taskIndex == -1) return;
 
     final task = _tasks[taskIndex];
+
+    await _deleteCalendarEventIfAny(task.calendarEventId);
+
     _tasks.removeAt(taskIndex);
     notifyListeners();
 
@@ -244,12 +378,14 @@ class AppStore extends ChangeNotifier {
 
   // Update UI when profile changes (for habit rewards, etc.)
   void refreshUI() {
-    debugPrint('DEBUG: refreshUI called, notifying listeners');
     notifyListeners();
   }
 
-  Future<void> completeHabitTask({int xpReward = 10}) async {
+  Future<void> completeHabitTask({int xpReward = 10, int coinReward = 0}) async {
     _userProfile.addXp(xpReward);
+    if (coinReward > 0) {
+      _userProfile.addCoins(coinReward);
+    }
     _userProfile.incrementCompletedTasks();
     _userProfile.updateStreak();
     _userProfile.incrementWeeklyActivity();
@@ -261,6 +397,8 @@ class AppStore extends ChangeNotifier {
     try {
       await _userService.updateUserProfile({
         'name': _userProfile.name,
+        if (_userProfile.email != null && _userProfile.email!.isNotEmpty)
+          'email': _userProfile.email,
         'level': _userProfile.level,
         'xp': _userProfile.xp,
         'coins': _userProfile.coins,
@@ -283,6 +421,7 @@ class AppStore extends ChangeNotifier {
     _userProfile = UserProfile(
       id: 'demo_user',
       name: 'Дамир',
+      email: null,
       level: 1,
       xp: 0,
       coins: 0,
@@ -395,7 +534,8 @@ class AppStore extends ChangeNotifier {
     // Initialize user profile with zero values
     _userProfile = UserProfile(
       id: 'demo_user',
-      name: 'Дамир',
+      name: 'Пользователь',
+      email: null,
       level: 1,
       xp: 0,
       coins: 0,

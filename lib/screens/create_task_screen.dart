@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:googleapis/calendar/v3.dart' as gcal;
 import '../theme/app_colors.dart';
@@ -5,11 +8,31 @@ import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
 import '../models/habit_model.dart';
 import '../models/app_store.dart';
+import '../models/task_model.dart';
 import 'main_shell.dart';
 
 class CreateTaskScreen extends StatefulWidget {
   final bool isFullPage;
-  const CreateTaskScreen({super.key, this.isFullPage = false});
+
+  /// Если задан — экран открыт из карточки цели: цель предвыбрана и закреплена.
+  final String? initialGoalId;
+
+  /// Редактирование существующей задачи цели (только пока [TaskModel.completed] == false).
+  final TaskModel? taskToEdit;
+
+  /// Редактирование привычки с главной (без цели).
+  final HabitModel? habitToEdit;
+
+  const CreateTaskScreen({
+    super.key,
+    this.isFullPage = false,
+    this.initialGoalId,
+    this.taskToEdit,
+    this.habitToEdit,
+  }) : assert(
+          taskToEdit == null || habitToEdit == null,
+          'taskToEdit и habitToEdit не задаются одновременно',
+        );
 
   @override
   State<CreateTaskScreen> createState() => _CreateTaskScreenState();
@@ -21,6 +44,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   bool _repeat = false;
   int _repeatIndex = 0;
   bool _syncToCalendar = true;
+  bool _isSaving = false;
 
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
@@ -37,11 +61,55 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   final HabitService _habitService = HabitService();
 
+  /// `null` — задача без цели (сохраняется как привычка). Иначе — `TaskModel` с [goalId].
+  String? _selectedGoalId;
+
+  bool get _isEditing =>
+      widget.taskToEdit != null || widget.habitToEdit != null;
+
+  /// Цель «заморожена» при создании из карточки цели или при редактировании задачи цели.
+  String? get _lockedGoalId =>
+      widget.taskToEdit?.goalId ?? widget.initialGoalId;
+
   @override
   void initState() {
     super.initState();
+    _selectedGoalId = widget.initialGoalId;
+    final edit = widget.taskToEdit;
+    if (edit != null) {
+      _titleController.text = edit.title;
+      final sub = edit.subtitle;
+      _descController.text = sub.startsWith('Цель: ') ? '' : sub;
+      _priority = _priorityIndexFromTag(edit.tag);
+      _selectedGoalId = edit.goalId;
+      final st = edit.scheduledAt;
+      if (st != null) {
+        _selectedDate = DateTime(st.year, st.month, st.day);
+        _selectedTime = TimeOfDay(hour: st.hour, minute: st.minute);
+      }
+    }
+
+    final habitEdit = widget.habitToEdit;
+    if (habitEdit != null) {
+      _titleController.text = habitEdit.title;
+      _descController.text = habitEdit.notes;
+      _selectedGoalId = null;
+      if (habitEdit.deadline != null) {
+        final d = habitEdit.deadline!;
+        _selectedDate = DateTime(d.year, d.month, d.day);
+        _selectedTime = TimeOfDay(hour: d.hour, minute: d.minute);
+      }
+      _guessSlidersFromHabitRewards(habitEdit);
+    }
     _syncToCalendar = GoogleCalendarService.instance.isSyncEnabled.value;
     _loadEventsForDate(_selectedDate);
+  }
+
+  static int _priorityIndexFromTag(TaskTag? tag) {
+    if (tag == null) return 1;
+    if (tag.type == TagType.high) return 2;
+    if (tag.text.contains('Низкий')) return 0;
+    return 1;
   }
 
   @override
@@ -51,11 +119,32 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     super.dispose();
   }
 
+  /// Полноэкранный режим открывается через [Navigator.push] без родителя [MainShell] — overlay-тост тогда падает; показываем [SnackBar].
+  void _toast(String message, {bool isError = false}) {
+    final shell = MainShell.maybeOf(context);
+    if (shell != null) {
+      shell.showToast(message, isError: isError);
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.red : AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      ),
+    );
+  }
+
   Future<void> _loadEventsForDate(DateTime date) async {
     if (!GoogleCalendarService.instance.isSyncEnabled.value) return;
     setState(() => _loadingEvents = true);
     try {
-      final events = await GoogleCalendarService.instance.fetchEventsForDate(date);
+      final events = await GoogleCalendarService.instance
+          .fetchEventsForDate(date)
+          .timeout(const Duration(seconds: 15));
       if (mounted) {
         setState(() {
           _dayEvents = events;
@@ -97,11 +186,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     ),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Center(
                       child: Text(
-                        'Новая задача',
-                        style: TextStyle(
+                        _isEditing ? 'Редактировать задачу' : 'Новая задача',
+                        style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
                         ),
@@ -226,8 +315,25 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     ),
 
                     const SizedBox(height: 20),
-                    // Complexity card
-                    Container(
+
+                    ListenableBuilder(
+                      listenable: AppStore.instance,
+                      builder: (context, _) {
+                        if (widget.habitToEdit != null) {
+                          return _buildLockedHabitBanner();
+                        }
+                        return _lockedGoalId != null
+                            ? _buildLockedGoalBanner()
+                            : _buildGoalDropdown();
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    if (_selectedGoalId != null)
+                      _buildGoalTaskRewardPreview()
+                    else
+                      Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
                         color: AppColors.primaryLight,
@@ -251,7 +357,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                       size: 18),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '+$_complexityReward XP',
+                                    '+$_finalXpReward XP',
+                                    style: TextStyle(
+                                      color: AppColors.primaryDark,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Icon(Icons.paid_rounded,
+                                      color: AppColors.yellow,
+                                      size: 18),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '+$_finalCoinReward',
                                     style: TextStyle(
                                       color: AppColors.primaryDark,
                                       fontWeight: FontWeight.w800,
@@ -301,36 +420,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                       fontSize: 12)),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-
-                    _label('Привязать к цели'),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.bgWhite,
-                        borderRadius: BorderRadius.circular(16),
-                        border:
-                            Border.all(color: AppColors.borderDark),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          isExpanded: true,
-                          value: 'Без цели',
-                          items: [
-                            const DropdownMenuItem(
-                                value: 'Без цели',
-                                child: Text('Без цели')),
-                            ...AppStore.instance.goals.map((g) =>
-                              DropdownMenuItem(
-                                  value: g.title,
-                                  child: Text(g.title)),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Награда умножается на приоритет: '
+                            '${_priorities[0].toLowerCase()} ×${_priorityMultipliers[0]} · '
+                            '${_priorities[1].toLowerCase()} ×${_priorityMultipliers[1]} · '
+                            '${_priorities[2].toLowerCase()} ×${_priorityMultipliers[2]}',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 11,
+                              height: 1.25,
                             ),
-                          ],
-                          onChanged: (_) {},
-                        ),
+                          ),
+                        ],
                       ),
                     ),
 
@@ -433,7 +535,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: _createTask,
+                        onPressed: _isSaving ? null : _createTask,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(vertical: 18),
@@ -442,14 +544,26 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           ),
                           elevation: 0,
                           shadowColor: Colors.transparent,
+                          disabledBackgroundColor: AppColors.primary
+                              .withValues(alpha: 0.65),
                         ),
-                        child: const Text('Создать задачу',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
+                        child: _isSaving
+                            ? const SizedBox(
+                                width: 26,
+                                height: 26,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                _isEditing ? 'Сохранить' : 'Создать задачу',
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -463,6 +577,182 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
 
     return content;
+  }
+
+  Widget _buildGoalTaskRewardPreview() {
+    final gid = _selectedGoalId!;
+    return ListenableBuilder(
+      listenable: AppStore.instance,
+      builder: (context, _) {
+        final n = AppStore.instance.getTasksForGoal(gid).length + 1;
+        final base = (500 / n).round();
+        final xp = math.max(5, (base * _priorityMultiplier).round());
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Награда за задачу в цели',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.toll_rounded,
+                      color: AppColors.primaryDark, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    '+$xp XP при выполнении',
+                    style: TextStyle(
+                      color: AppColors.primaryDark,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Пул цели 500 XP делится на $n задач(у), затем умножается на приоритет '
+                '(${_priorities[_priority].toLowerCase()} ×${_priorityMultiplier.toStringAsFixed(2)}).',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLockedHabitBanner() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label('Тип'),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.bolt_rounded, color: AppColors.primary, size: 22),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Привычка (не привязана к цели)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Icon(Icons.lock_outline_rounded,
+                  size: 18, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLockedGoalBanner() {
+    var goalTitle = 'Цель';
+    for (final g in AppStore.instance.goals) {
+      if (g.id == _lockedGoalId) {
+        goalTitle = g.title;
+        break;
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label('Цель'),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.flag_rounded, color: AppColors.primary, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  goalTitle,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Icon(Icons.lock_outline_rounded,
+                  size: 18, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGoalDropdown() {
+    final goals = AppStore.instance.goals;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _label('Привязать к цели'),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.bgWhite,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.borderDark),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String?>(
+              isExpanded: true,
+              value: _selectedGoalId,
+              hint: const Text('Без цели'),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Без цели'),
+                ),
+                ...goals.map(
+                  (g) => DropdownMenuItem<String?>(
+                    value: g.id,
+                    child: Text(g.title),
+                  ),
+                ),
+              ],
+              onChanged: (v) => setState(() => _selectedGoalId = v),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   // ── Calendar Card with date picker ────────────────────────────────────────
@@ -733,14 +1023,118 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 
-  // ── Computed values ────────────────────────────────────────────────────────
-  int get _complexityReward {
+  // ── Reward from complexity × priority (монеты и XP) ────────────────────────
+  /// Множители для уровней приоритета: Низкий / Средний / Высокий
+  static const List<double> _priorityMultipliers = [0.82, 1.0, 1.28];
+
+  double get _priorityMultiplier =>
+      _priorityMultipliers[_priority.clamp(0, _priorityMultipliers.length - 1)];
+
+  int get _baseXpFromComplexity {
     if (_complexity <= 1) return 10;
     if (_complexity <= 2) return 30;
     return 50;
   }
 
+  int get _baseCoinsFromComplexity {
+    if (_complexity <= 1) return 6;
+    if (_complexity <= 2) return 18;
+    return 32;
+  }
+
+  int get _finalXpReward => math.max(
+        5,
+        (_baseXpFromComplexity * _priorityMultiplier).round(),
+      );
+
+  int get _finalCoinReward => math.max(
+        0,
+        (_baseCoinsFromComplexity * _priorityMultiplier).round(),
+      );
+
+  /// Подобрать ползунки по сохранённым наградам при открытии редактора привычки.
+  void _guessSlidersFromHabitRewards(HabitModel h) {
+    if (h.isQuickTask) {
+      _priority = 1;
+      _complexity = 2;
+      return;
+    }
+    final targetXp = h.xpReward;
+    var bestDiff = 1 << 30;
+    var bestP = 1;
+    var bestC = 2.0;
+    for (final c in [1.0, 2.0, 3.0]) {
+      final base = c <= 1 ? 10 : (c <= 2 ? 30 : 50);
+      for (var p = 0; p < 3; p++) {
+        final mult = _priorityMultipliers[p];
+        final xp = math.max(5, (base * mult).round());
+        final d = (xp - targetXp).abs();
+        if (d < bestDiff) {
+          bestDiff = d;
+          bestP = p;
+          bestC = c;
+        }
+      }
+    }
+    _priority = bestP;
+    _complexity = bestC;
+  }
+
   // ── Actions ────────────────────────────────────────────────────────────────
+  /// Ограничиваем ожидание Firestore: при «мертвой» сети эмулятора иначе UI зависает без ответа.
+  static const Duration _firestoreWait = Duration(seconds: 45);
+
+  Future<bool> _awaitFirestoreVoid(Future<void> future) async {
+    try {
+      await future.timeout(_firestoreWait);
+      return true;
+    } on TimeoutException {
+      if (mounted) {
+        _toast(
+          'Облако не ответило за ${_firestoreWait.inSeconds} с. '
+          'Проверьте интернет; на эмуляторе: Extended Controls → Cellular/Wi‑Fi или Cold Boot.',
+          isError: true,
+        );
+      }
+      return false;
+    } catch (e, st) {
+      debugPrint('Firestore save: $e\n$st');
+      if (mounted) {
+        final msg = e.toString();
+        _toast(
+          msg.length > 160 ? '${msg.substring(0, 160)}…' : msg,
+          isError: true,
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<HabitModel?> _awaitFirestoreHabit(Future<HabitModel> future) async {
+    try {
+      return await future.timeout(_firestoreWait);
+    } on TimeoutException {
+      if (mounted) {
+        _toast(
+          'Облако не ответило за ${_firestoreWait.inSeconds} с. '
+          'Проверьте интернет или запустите на реальном устройстве.',
+          isError: true,
+        );
+      }
+      return null;
+    } catch (e, st) {
+      debugPrint('Firestore habit save: $e\n$st');
+      if (mounted) {
+        final msg = e.toString();
+        _toast(
+          msg.length > 160 ? '${msg.substring(0, 160)}…' : msg,
+          isError: true,
+        );
+      }
+      return null;
+    }
+  }
+
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
       context: context,
@@ -762,60 +1156,301 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _createTask() async {
+    if (_isSaving) return;
+
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      MainShell.of(context).showToast('Введите название задачи', isError: true);
+      _toast('Введите название задачи', isError: true);
       return;
     }
 
-    final deadline = DateTime(
+    setState(() => _isSaving = true);
+    try {
+      if (widget.habitToEdit != null) {
+        try {
+          await _updateHabitTask(widget.habitToEdit!);
+        } catch (e) {
+          if (mounted) _toast('Ошибка сохранения', isError: true);
+        }
+        return;
+      }
+
+      if (widget.taskToEdit != null) {
+        try {
+          await _updateGoalTask(widget.taskToEdit!, title);
+        } catch (e) {
+          if (mounted) _toast('Ошибка сохранения', isError: true);
+        }
+        return;
+      }
+
+      final forGoal =
+          _selectedGoalId != null && _selectedGoalId!.trim().isNotEmpty;
+
+      try {
+        if (forGoal) {
+          await _createGoalTask(_selectedGoalId!, title);
+        } else {
+          await _createHabitTask(title);
+        }
+      } catch (e) {
+        if (mounted) _toast('Ошибка создания задачи', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _updateGoalTask(TaskModel old, String title) async {
+    if (old.completed) {
+      if (!mounted) return;
+      _toast(
+        'Завершённую задачу нельзя редактировать',
+        isError: true,
+      );
+      return;
+    }
+    final goalId = old.goalId;
+    if (goalId == null || goalId.isEmpty) {
+      if (!mounted) return;
+      _toast(
+        'Редактирование доступно только для задач целей',
+        isError: true,
+      );
+      return;
+    }
+
+    final store = AppStore.instance;
+    final matching = store.goals.where((g) => g.id == goalId);
+    if (matching.isEmpty) {
+      if (!mounted) return;
+      _toast('Цель не найдена', isError: true);
+      return;
+    }
+    final goal = matching.first;
+
+    final currentTasks = store.getTasksForGoal(goalId);
+    final n = currentTasks.isEmpty ? 1 : currentTasks.length;
+    final baseXp = (500 / n).round();
+    final xpReward = math.max(5, (baseXp * _priorityMultiplier).round());
+
+    final desc = _descController.text.trim();
+    final scheduledAt = DateTime(
       _selectedDate.year,
       _selectedDate.month,
       _selectedDate.day,
       _selectedTime.hour,
       _selectedTime.minute,
     );
+    final updated = old.copyWith(
+      title: title,
+      subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
+      scheduledAt: scheduledAt,
+      reward: xpReward,
+      isXp: true,
+      tag: TaskTag(
+        text: _priorities[_priority],
+        type: _priority == 2 ? TagType.high : TagType.medium,
+      ),
+    );
 
-    try {
-      final habit = HabitModel(
-        title: title,
-        completed: false,
-        createdAt: DateTime.now(),
-        isQuickTask: false,
-        xpReward: _complexityReward,
-        deadline: deadline,
+    final ok = await _awaitFirestoreVoid(store.updateTask(updated));
+    if (!ok || !mounted) return;
+
+    _toast('Изменения сохранены');
+    _afterTaskCreatedSuccess();
+  }
+
+  Future<void> _updateHabitTask(HabitModel old) async {
+    if (old.completed) {
+      if (!mounted) return;
+      _toast(
+        'Завершённую задачу нельзя редактировать',
+        isError: true,
       );
-
-      await _habitService.addHabit(habit);
-
-      // Sync to Google Calendar if enabled
-      if (_syncToCalendar && GoogleCalendarService.instance.isSyncEnabled.value) {
-        await GoogleCalendarService.instance.syncHabitToCalendar(habit);
-      }
-
-      if (!mounted) return;
-      MainShell.of(context).showToast('Задача успешно создана!');
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (!mounted) return;
-        if (widget.isFullPage) {
-          Navigator.of(context).pop();
-        } else {
-          _titleController.clear();
-          _descController.clear();
-          setState(() {
-            _selectedDate = DateTime.now();
-            _selectedTime = TimeOfDay.now();
-            _priority = 1;
-            _complexity = 2;
-            _repeat = false;
-          });
-          MainShell.of(context).setIndex(0);
-        }
-      });
-    } catch (e) {
-      if (!mounted) return;
-      MainShell.of(context).showToast('Ошибка создания задачи', isError: true);
+      return;
     }
+    final hid = old.id;
+    if (hid == null || hid.isEmpty) {
+      if (!mounted) return;
+      _toast('Ошибка: нет id задачи', isError: true);
+      return;
+    }
+
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      if (!mounted) return;
+      _toast('Введите название задачи', isError: true);
+      return;
+    }
+
+    final deadline = _habitDeadlineFromPicker();
+
+    final updated = old.copyWith(
+      title: title,
+      notes: _descController.text.trim(),
+      deadline: deadline,
+      xpReward: _finalXpReward,
+      coinReward: _finalCoinReward,
+      isQuickTask: false,
+    );
+
+    final ok = await _awaitFirestoreVoid(_habitService.updateHabit(updated));
+    if (!ok || !mounted) return;
+
+    // Не блокируем UI ожиданием Calendar API (на эмуляторе часто зависает DNS/SSL).
+    _scheduleBackgroundHabitCalendarSync(updated);
+
+    if (!mounted) return;
+    _toast('Изменения сохранены');
+    _afterTaskCreatedSuccess();
+  }
+
+  /// Синхронизация с календарём в фоне + таймаут; учитывает «Добавить в Google Calendar».
+  void _scheduleBackgroundHabitCalendarSync(HabitModel habitAfterFirestore) {
+    if (!_syncToCalendar ||
+        !GoogleCalendarService.instance.isSyncEnabled.value) {
+      return;
+    }
+    final snapshot = habitAfterFirestore;
+    Future.microtask(() async {
+      try {
+        final eventId = await GoogleCalendarService.instance
+            .syncHabitToCalendar(snapshot)
+            .timeout(const Duration(seconds: 25));
+        if (eventId != null &&
+            eventId.isNotEmpty &&
+            eventId != snapshot.calendarEventId) {
+          await _habitService.updateHabit(
+            snapshot.copyWith(calendarEventId: eventId),
+          );
+        }
+      } catch (e, st) {
+        debugPrint('Habit calendar sync: $e\n$st');
+      }
+    });
+  }
+
+  Future<void> _createGoalTask(String goalId, String title) async {
+    final store = AppStore.instance;
+    final matching = store.goals.where((g) => g.id == goalId);
+    if (matching.isEmpty) {
+      if (!mounted) return;
+      _toast('Цель не найдена', isError: true);
+      return;
+    }
+    final goal = matching.first;
+
+    final currentTasks = store.getTasksForGoal(goalId);
+    final newTotal = currentTasks.length + 1;
+    final baseXp = (500 / newTotal).round();
+    final xpReward = math.max(5, (baseXp * _priorityMultiplier).round());
+
+    final desc = _descController.text.trim();
+    final scheduledAt = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+    final task = TaskModel(
+      id:
+          'task_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(99999)}',
+      title: title,
+      subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
+      goalId: goalId,
+      scheduledAt: scheduledAt,
+      reward: xpReward,
+      isXp: true,
+      tag: TaskTag(
+        text: _priorities[_priority],
+        type: _priority == 2 ? TagType.high : TagType.medium,
+      ),
+      completed: false,
+    );
+
+    final ok = await _awaitFirestoreVoid(store.addTask(task));
+    if (!ok || !mounted) return;
+
+    _toast('Задача добавлена в цель!');
+    _afterTaskCreatedSuccess();
+  }
+
+  Future<void> _createHabitTask(String title) async {
+    final deadline = _habitDeadlineFromPicker();
+
+    final habit = HabitModel(
+      title: title,
+      completed: false,
+      createdAt: DateTime.now(),
+      isQuickTask: false,
+      xpReward: _finalXpReward,
+      coinReward: _finalCoinReward,
+      deadline: deadline,
+      notes: _descController.text.trim(),
+    );
+
+    final saved = await _awaitFirestoreHabit(_habitService.addHabit(habit));
+    if (saved == null || !mounted) return;
+
+    _scheduleBackgroundHabitCalendarSync(saved);
+
+    if (!mounted) return;
+    _toast('Задача успешно создана!');
+    _afterTaskCreatedSuccess();
+  }
+
+  void _afterTaskCreatedSuccess() {
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      if (widget.isFullPage) {
+        Navigator.of(context).pop();
+      } else {
+        _titleController.clear();
+        _descController.clear();
+        setState(() {
+          _selectedDate = DateTime.now();
+          _selectedTime = TimeOfDay.now();
+          _priority = 1;
+          _complexity = 2;
+          _repeat = false;
+          if (widget.initialGoalId == null &&
+              widget.taskToEdit == null &&
+              widget.habitToEdit == null) {
+            _selectedGoalId = null;
+          }
+        });
+        MainShell.maybeOf(context)?.setIndex(0);
+      }
+    });
+  }
+
+  /// Если выбранное время уже в прошлом, задача сразу попадала в «Просрочено» с нерабочим чекбоксом.
+  DateTime _habitDeadlineFromPicker() {
+    final proposed = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+    return _clampHabitDeadlineToFuture(proposed, _selectedDate);
+  }
+
+  static DateTime _clampHabitDeadlineToFuture(DateTime proposed, DateTime dayDate) {
+    final now = DateTime.now();
+    if (proposed.isAfter(now)) return proposed;
+    final endOfDay = DateTime(
+      dayDate.year,
+      dayDate.month,
+      dayDate.day,
+      23,
+      59,
+      59,
+    );
+    if (endOfDay.isAfter(now)) return endOfDay;
+    return now.add(const Duration(minutes: 1));
   }
 
   String _formatDate(DateTime date) {

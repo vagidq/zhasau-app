@@ -36,11 +36,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onStoreChanged() {
-    debugPrint('DEBUG: _onStoreChanged called');
-    if (mounted) {
-      debugPrint('DEBUG: setState called, mounted=true');
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -57,7 +53,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('DEBUG: DashboardScreen.build called');
     final user = AppStore.instance.userProfile;
     final xpPercent = user.getXpProgressPercent() / 100.0;
 
@@ -355,26 +350,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       stream: _habitService.getHabits(),
                       builder: (context, snapshot) {
                         final habits = snapshot.data ?? const <HabitModel>[];
-                        final today = DateTime.now();
+                        final now = DateTime.now();
+                        bool sameCalendarDay(DateTime a) =>
+                            a.year == now.year &&
+                            a.month == now.month &&
+                            a.day == now.day;
 
-                        // Active: not completed, not expired, not pending, not dismissed
+                        /// «Задачи на сегодня» — только слот на сегодня или без даты; не весь невыполненный бэклог.
+                        final incompleteGoalTasks = AppStore.instance.tasks
+                            .where((t) =>
+                                t.goalId != null &&
+                                t.goalId!.isNotEmpty &&
+                                !t.completed &&
+                                (t.scheduledAt == null ||
+                                    sameCalendarDay(t.scheduledAt!)))
+                            .toList();
+
+                        // Активные: сегодня; быстрая задача (24ч) — всегда в этом блоке до завершения.
                         final activeHabits = habits
                             .where((h) =>
                                 !h.completed &&
                                 !h.isExpired &&
                                 h.completedAt == null &&
                                 !_pendingDelete.contains(h.id) &&
-                                !_dismissed.contains(h.id))
+                                !_dismissed.contains(h.id) &&
+                                (h.isQuickTask ||
+                                    h.deadline == null ||
+                                    sameCalendarDay(h.deadline!)))
                             .take(3)
                             .toList();
+
+                        final upcomingGoalTasks = AppStore.instance.tasks
+                            .where((t) =>
+                                t.goalId != null &&
+                                t.goalId!.isNotEmpty &&
+                                !t.completed &&
+                                t.scheduledAt != null &&
+                                !sameCalendarDay(t.scheduledAt!))
+                            .toList()
+                          ..sort((a, b) =>
+                              a.scheduledAt!.compareTo(b.scheduledAt!));
+
+                        final upcomingHabits = habits
+                            .where((h) =>
+                                !h.completed &&
+                                !h.isExpired &&
+                                h.completedAt == null &&
+                                !_pendingDelete.contains(h.id) &&
+                                !_dismissed.contains(h.id) &&
+                                !h.isQuickTask &&
+                                h.deadline != null &&
+                                !sameCalendarDay(h.deadline!))
+                            .toList()
+                          ..sort((a, b) =>
+                              a.deadline!.compareTo(b.deadline!));
+
+                        final upcomingCount =
+                            upcomingGoalTasks.length + upcomingHabits.length;
 
                         // Completed today
                         final completedHabits = habits
                             .where((h) =>
                                 h.completedAt != null &&
-                                h.completedAt!.year == today.year &&
-                                h.completedAt!.month == today.month &&
-                                h.completedAt!.day == today.day)
+                                h.completedAt!.year == now.year &&
+                                h.completedAt!.month == now.month &&
+                                h.completedAt!.day == now.day)
                             .toList();
 
                         // Expired quick tasks (deadline passed, not completed, not dismissed)
@@ -404,7 +444,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     color: AppColors.primaryLight,
                                     borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: Text('${activeHabits.length} задачи',
+                                  child: Text(
+                                    '${activeHabits.length + incompleteGoalTasks.length}',
                                     style: TextStyle(
                                       color: AppColors.primary,
                                       fontSize: 12,
@@ -427,22 +468,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               )
                             else if (snapshot.connectionState ==
                                     ConnectionState.waiting &&
-                                habits.isEmpty)
+                                habits.isEmpty &&
+                                incompleteGoalTasks.isEmpty &&
+                                upcomingCount == 0)
                               const Padding(
                                 padding: EdgeInsets.only(bottom: 12),
                                 child: Center(child: CircularProgressIndicator()),
                               )
                             else if (activeHabits.isEmpty &&
+                                incompleteGoalTasks.isEmpty &&
                                 completedHabits.isEmpty &&
-                                expiredHabits.isEmpty)
+                                expiredHabits.isEmpty &&
+                                upcomingCount == 0)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text(
-                                  'Пока нет задач',
+                                  'Пока нет задач на сегодня',
                                   style: TextStyle(color: AppColors.textMuted),
                                 ),
                               )
                             else ...[
+                              if (activeHabits.isEmpty &&
+                                  incompleteGoalTasks.isEmpty &&
+                                  upcomingCount > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 14),
+                                  child: Text(
+                                    'На сегодня план пустой. Ниже — что запланировано на другие дни.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: AppColors.textMuted,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
                               for (final habit in activeHabits)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
@@ -468,9 +527,255 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     child: TaskItemWidget(
                                       task: _habitToTask(habit),
                                       onToggle: () => _toggleHabit(habit),
+                                      onContentTap: () {
+                                        Navigator.of(context).push<void>(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => CreateTaskScreen(
+                                              isFullPage: true,
+                                              habitToEdit: habit,
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
                                   ),
                                 ),
+
+                              // ── Задачи из целей (активные) ───────────────
+                              for (final gTask in incompleteGoalTasks)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Dismissible(
+                                    key: Key('goal_task_${gTask.id}'),
+                                    direction: DismissDirection.endToStart,
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.only(right: 20),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.red,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Colors.white,
+                                        size: 24,
+                                      ),
+                                    ),
+                                    onDismissed: (_) {
+                                      AppStore.instance.deleteTask(gTask.id);
+                                    },
+                                    child: TaskItemWidget(
+                                      task: _goalTaskForDisplay(gTask),
+                                      onToggle: () =>
+                                          _toggleGoalTask(gTask),
+                                      onContentTap: () {
+                                        Navigator.of(context).push<void>(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => CreateTaskScreen(
+                                              isFullPage: true,
+                                              taskToEdit: gTask,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+
+                              // ── Запланировано на другие дни ─────────────
+                              if (upcomingCount > 0) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.blueLight
+                                            .withValues(alpha: 0.85),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(
+                                        Icons.event_note_rounded,
+                                        size: 18,
+                                        color: AppColors.blue,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Дальше по плану',
+                                            style: TextStyle(
+                                              fontSize: 17,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Не на сегодня, но по расписанию',
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: AppColors.textMuted,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.blueLight
+                                            .withValues(alpha: 0.6),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                       child: Text(
+                                        '$upcomingCount',
+                                        style: TextStyle(
+                                          color: AppColors.blue,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.fromLTRB(
+                                      12, 14, 12, 6),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.blueLight
+                                        .withValues(alpha: 0.22),
+                                    borderRadius: BorderRadius.circular(22),
+                                    border: Border.all(
+                                      color: AppColors.blue
+                                          .withValues(alpha: 0.12),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: () {
+                                      final rows = <({DateTime at, Widget row})>[];
+                                      for (final h in upcomingHabits) {
+                                        rows.add((
+                                          at: h.deadline!,
+                                          row: Padding(
+                                            padding: const EdgeInsets.only(
+                                                bottom: 10),
+                                            child: Dismissible(
+                                              key: Key('up_h_${h.id ?? h.title}'),
+                                              direction: DismissDirection
+                                                  .endToStart,
+                                              background: Container(
+                                                alignment:
+                                                    Alignment.centerRight,
+                                                padding: const EdgeInsets.only(
+                                                    right: 20),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.red,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          16),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                              onDismissed: (_) {
+                                                setState(() => _dismissed
+                                                    .add(h.id ?? ''));
+                                                _habitService.deleteHabit(
+                                                    h.id ?? '');
+                                              },
+                                              child: TaskItemWidget(
+                                                task: _habitToTaskUpcoming(
+                                                    h, now),
+                                                onToggle: () =>
+                                                    _toggleHabit(h),
+                                                onContentTap: () {
+                                                  Navigator.of(context)
+                                                      .push<void>(
+                                                    MaterialPageRoute<void>(
+                                                      builder: (_) =>
+                                                          CreateTaskScreen(
+                                                        isFullPage: true,
+                                                        habitToEdit: h,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ));
+                                      }
+                                      for (final gTask in upcomingGoalTasks) {
+                                        rows.add((
+                                          at: gTask.scheduledAt!,
+                                          row: Padding(
+                                            padding: const EdgeInsets.only(
+                                                bottom: 10),
+                                            child: Dismissible(
+                                              key: Key('up_gt_${gTask.id}'),
+                                              direction: DismissDirection.endToStart,
+                                              background: Container(
+                                                alignment:
+                                                    Alignment.centerRight,
+                                                padding: const EdgeInsets.only(
+                                                    right: 20),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.red,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          16),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                              onDismissed: (_) {
+                                                AppStore.instance
+                                                    .deleteTask(gTask.id);
+                                              },
+                                              child: TaskItemWidget(
+                                                task: _goalTaskForUpcoming(
+                                                    gTask, now),
+                                                onToggle: () =>
+                                                    _toggleGoalTask(gTask),
+                                                onContentTap: () {
+                                                  Navigator.of(context)
+                                                      .push<void>(
+                                                    MaterialPageRoute<void>(
+                                                      builder: (_) =>
+                                                          CreateTaskScreen(
+                                                        isFullPage: true,
+                                                        taskToEdit: gTask,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ));
+                                      }
+                                      rows.sort(
+                                          (a, b) => a.at.compareTo(b.at));
+                                      return rows.map((e) => e.row).toList();
+                                    }(),
+                                  ),
+                                ),
+                              ],
 
                               // ── Completed today section ──────────────
                               if (completedHabits.isNotEmpty) ...[
@@ -532,7 +837,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         size: 16, color: AppColors.red),
                                     const SizedBox(width: 6),
                                     Text(
-                                      'Невыполненные · ${expiredHabits.length}',
+                                      'Просрочено · ${expiredHabits.length}',
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -568,7 +873,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         opacity: 0.55,
                                         child: TaskItemWidget(
                                           task: _habitToTask(habit),
-                                          onToggle: () {},
+                                          onToggle: () => _toggleHabit(habit),
+                                          onContentTap: () {
+                                            Navigator.of(context).push<void>(
+                                              MaterialPageRoute<void>(
+                                                builder: (_) =>
+                                                    CreateTaskScreen(
+                                                  isFullPage: true,
+                                                  habitToEdit: habit,
+                                                ),
+                                              ),
+                                            );
+                                          },
                                         ),
                                       ),
                                     ),
@@ -595,6 +911,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  tm.TaskModel _goalTaskForDisplay(tm.TaskModel task) {
+    final gid = task.goalId;
+    if (gid == null || gid.isEmpty) return task;
+    for (final g in AppStore.instance.goals) {
+      if (g.id == gid) {
+        return task.copyWith(subtitle: 'Цель · ${g.title}');
+      }
+    }
+    return task;
+  }
+
+  void _toggleGoalTask(tm.TaskModel task) {
+    final gid = task.goalId;
+    if (gid == null || gid.isEmpty) return;
+    final goalTasks = AppStore.instance.getTasksForGoal(gid);
+    final xpPerTask = goalTasks.isEmpty
+        ? 500
+        : (500 / goalTasks.length).round();
+
+    final updatedTask = task.copyWith(
+      completed: !task.completed,
+      reward: xpPerTask,
+      isXp: true,
+    );
+
+    AppStore.instance.updateTask(updatedTask);
+
+    if (!task.completed) {
+      MainShell.of(context).showToast('+$xpPerTask XP за задачу!');
+    }
+  }
+
   Future<void> _submitQuickAdd(String text) async {
     _quickAddFocus.unfocus();
     if (text.trim().isEmpty) {
@@ -612,14 +960,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         xpReward: 20,
         deadline: now.add(const Duration(hours: 24)),
       );
-      await _habitService.addHabit(habit);
+      final saved = await _habitService.addHabit(habit);
       _quickAddController.clear();
       if (!mounted) return;
       MainShell.of(context).showToast('Задача добавлена!');
 
-      // Auto-sync to Google Calendar if enabled
       if (GoogleCalendarService.instance.isSyncEnabled.value) {
-        GoogleCalendarService.instance.syncHabitToCalendar(habit);
+        final eventId =
+            await GoogleCalendarService.instance.syncHabitToCalendar(saved);
+        if (eventId != null &&
+            eventId.isNotEmpty &&
+            eventId != saved.calendarEventId) {
+          await _habitService.updateHabit(
+            saved.copyWith(calendarEventId: eventId),
+          );
+        }
       }
     } catch (_) {
       if (!mounted) return;
@@ -640,7 +995,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
-          content: Text('Задача выполнена! +${habit.xpReward} XP'),
+          content: Text(
+            habit.coinReward > 0
+                ? 'Задача выполнена! +${habit.xpReward} XP · +${habit.coinReward} монет'
+                : 'Задача выполнена! +${habit.xpReward} XP',
+          ),
           duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
@@ -678,7 +1037,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _deleteTimers.remove(id);
     setState(() => _pendingDelete.remove(id));
     if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
-    await AppStore.instance.completeHabitTask(xpReward: habit.xpReward);
+    await AppStore.instance.completeHabitTask(
+      xpReward: habit.xpReward,
+      coinReward: habit.coinReward,
+    );
     await _habitService.updateHabit(
       habit.copyWith(completed: true, completedAt: DateTime.now()),
     );
@@ -686,7 +1048,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   tm.TaskModel _habitToTask(HabitModel habit) {
     String subtitle;
-    if (habit.isQuickTask && habit.deadline != null) {
+    if (habit.notes.isNotEmpty) {
+      subtitle = habit.notes;
+    } else if (habit.isQuickTask && habit.deadline != null) {
       if (habit.isExpired) {
         subtitle = 'Быстрая задача · просрочено';
       } else {
@@ -698,16 +1062,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
             : 'Быстрая задача · осталось $mм';
       }
     } else {
-      subtitle = 'Задача';
+      subtitle = (habit.isExpired && habit.deadline != null)
+          ? 'Просрочено'
+          : 'Задача';
+    }
+
+    // Награда: быстрые задачи и задачи с экрана «Добавить» хранят xpReward; раньше XP в карточке был только при isQuickTask.
+    final int reward;
+    final bool isXp;
+    if (habit.xpReward > 0) {
+      reward = habit.xpReward;
+      isXp = true;
+    } else if (habit.coinReward > 0) {
+      reward = habit.coinReward;
+      isXp = false;
+    } else {
+      reward = 0;
+      isXp = true;
     }
 
     return tm.TaskModel(
       id: habit.id ?? '',
       title: habit.title,
       subtitle: subtitle,
-      reward: habit.isQuickTask ? habit.xpReward : 0,
-      isXp: habit.isQuickTask,
+      reward: reward,
+      isXp: isXp,
       completed: habit.completed,
+    );
+  }
+
+  String _planDayLabel(DateTime slot, DateTime now) {
+    final s = DateTime(slot.year, slot.month, slot.day);
+    final t = DateTime(now.year, now.month, now.day);
+    final diff = s.difference(t).inDays;
+    if (diff == 1) return 'Завтра';
+    if (diff == 2) return 'Послезавтра';
+    const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    if (diff >= 3 && diff <= 6) return weekdays[s.weekday - 1];
+    const months = [
+      'янв', 'фев', 'мар', 'апр', 'мая', 'июн',
+      'июл', 'авг', 'сен', 'окт', 'ноя', 'дек',
+    ];
+    return '${s.day} ${months[s.month - 1]}';
+  }
+
+  String _planTimeHm(DateTime slot) {
+    final h = slot.hour.toString().padLeft(2, '0');
+    final m = slot.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  tm.TaskModel _goalTaskForUpcoming(tm.TaskModel task, DateTime now) {
+    final base = _goalTaskForDisplay(task);
+    final st = task.scheduledAt!;
+    return base.copyWith(
+      subtitle:
+          '${_planDayLabel(st, now)} · ${_planTimeHm(st)} · ${base.subtitle}',
+    );
+  }
+
+  tm.TaskModel _habitToTaskUpcoming(HabitModel habit, DateTime now) {
+    final t = _habitToTask(habit);
+    final d = habit.deadline!;
+    final tail = habit.notes.isNotEmpty ? habit.notes : t.subtitle;
+    return t.copyWith(
+      subtitle: '${_planDayLabel(d, now)} · ${_planTimeHm(d)} · $tail',
     );
   }
 

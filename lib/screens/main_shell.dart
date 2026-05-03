@@ -17,6 +17,10 @@ class MainShell extends StatefulWidget {
 
   static MainShellState of(BuildContext context) =>
       context.findAncestorStateOfType<MainShellState>()!;
+
+  /// Когда экран открыт поверх стека ([Navigator.push]), у виджета может не быть [MainShell] над собой.
+  static MainShellState? maybeOf(BuildContext context) =>
+      context.findAncestorStateOfType<MainShellState>();
 }
 
 class MainShellState extends State<MainShell> {

@@ -7,10 +7,14 @@ class TaskItemWidget extends StatefulWidget {
   final TaskModel task;
   final VoidCallback onToggle;
 
+  /// Тап по текстовой части карточки (не по чекбоксу) — открыть экран как при создании.
+  final VoidCallback? onContentTap;
+
   const TaskItemWidget({
     super.key,
     required this.task,
     required this.onToggle,
+    this.onContentTap,
   });
 
   @override
@@ -33,106 +37,135 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
-    return GestureDetector(
-      onTap: _handleTap,
-      child: AnimatedOpacity(
-        opacity: task.completed ? 0.65 : 1,
-        duration: const Duration(milliseconds: 200),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.bgWhite,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(color: Color(0x05000000), blurRadius: 10),
-            ],
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Checkbox
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 28,
-                height: 28,
-                margin: const EdgeInsets.only(top: 2),
-                decoration: BoxDecoration(
-                  color:
-                      task.completed ? AppColors.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: task.completed
-                        ? AppColors.primary
-                        : AppColors.primaryLight,
-                    width: 2,
+    return AnimatedOpacity(
+      opacity: task.completed ? 0.65 : 1,
+      duration: const Duration(milliseconds: 200),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.bgWhite,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(color: Color(0x05000000), blurRadius: 10),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Только чекбокс завершает задачу (не всё пустое место карточки).
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _handleTap,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color:
+                          task.completed ? AppColors.primary : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: task.completed
+                            ? AppColors.primary
+                            : AppColors.primaryLight,
+                        width: 2,
+                      ),
+                    ),
+                    child: task.completed
+                        ? const Icon(Icons.check_rounded,
+                            color: Colors.white, size: 16)
+                        : null,
                   ),
                 ),
-                child: task.completed
-                    ? const Icon(Icons.check_rounded,
-                        color: Colors.white, size: 16)
-                    : null,
               ),
+            ),
 
-              const SizedBox(width: 16),
+            const SizedBox(width: 12),
 
-              // Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Title
-                        Expanded(
-                          child: Text(
-                            task.title,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                              color: task.completed
-                                  ? AppColors.textMuted
-                                  : AppColors.textDark,
-                              decoration: task.completed
-                                  ? TextDecoration.lineThrough
-                                  : null,
+            // Контент: опционально открывает полный экран редактирования (тап по области текста).
+            Expanded(
+              child: Builder(
+                builder: (context) {
+                  final body = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              task.title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                                color: task.completed
+                                    ? AppColors.textMuted
+                                    : AppColors.textDark,
+                                decoration: task.completed
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
                             ),
                           ),
-                        ),
-                        // Reward
-                        _rewardWidget(task),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    // Meta row
-                    Row(
-                      children: [
-                        Icon(
-                          task.isXp
-                              ? Icons.bar_chart_rounded
-                              : Icons.access_time_rounded,
-                          size: 14,
-                          color: AppColors.textMuted,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          task.subtitle,
-                          style: TextStyle(
-                            fontSize: 13,
+                          _rewardWidget(task),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            task.isXp
+                                ? Icons.bar_chart_rounded
+                                : Icons.access_time_rounded,
+                            size: 14,
                             color: AppColors.textMuted,
                           ),
-                        ),
-                        if (task.tag != null) ...[
-                          const SizedBox(width: 8),
-                          _tagWidget(task.tag!),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              task.subtitle,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                          ),
+                          if (task.tag != null) ...[
+                            const SizedBox(width: 8),
+                            _tagWidget(task.tag!),
+                          ],
                         ],
-                      ],
+                      ),
+                    ],
+                  );
+
+                  final canOpenEditor =
+                      widget.onContentTap != null && !task.completed;
+                  if (!canOpenEditor) return body;
+
+                  return Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        widget.onContentTap!();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: body,
+                      ),
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

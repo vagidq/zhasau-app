@@ -12,6 +12,10 @@ class TaskModel {
   final String title;
   final String subtitle;
   final String? goalId;
+  /// Начало слота в календаре (задачи цели); для старых записей может быть null.
+  final DateTime? scheduledAt;
+  /// ID события в Google Calendar после синка.
+  final String? calendarEventId;
   final num reward;
   final bool isXp;
   final TaskTag? tag;
@@ -22,6 +26,8 @@ class TaskModel {
     required this.title,
     required this.subtitle,
     this.goalId,
+    this.scheduledAt,
+    this.calendarEventId,
     required this.reward,
     required this.isXp,
     this.tag,
@@ -33,6 +39,8 @@ class TaskModel {
     String? title,
     String? subtitle,
     String? goalId,
+    DateTime? scheduledAt,
+    String? calendarEventId,
     num? reward,
     bool? isXp,
     TaskTag? tag,
@@ -43,6 +51,8 @@ class TaskModel {
       title: title ?? this.title,
       subtitle: subtitle ?? this.subtitle,
       goalId: goalId ?? this.goalId,
+      scheduledAt: scheduledAt ?? this.scheduledAt,
+      calendarEventId: calendarEventId ?? this.calendarEventId,
       reward: reward ?? this.reward,
       isXp: isXp ?? this.isXp,
       tag: tag ?? this.tag,

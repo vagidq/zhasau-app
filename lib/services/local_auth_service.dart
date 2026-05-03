@@ -43,6 +43,11 @@ class LocalAuthService {
     return prefs.getString(_kName);
   }
 
+  Future<String?> getEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kEmail);
+  }
+
   Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kLoggedIn, false);
