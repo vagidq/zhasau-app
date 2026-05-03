@@ -13,16 +13,21 @@ class UserAvatar extends StatelessWidget {
     this.photoUrl,
     this.previewBytes,
     this.radius = 24,
+    /// Для списков «чужих» пользователей задать [false], иначе при пустом [photoUrl]
+    /// подставится фото текущего [FirebaseAuth] аккаунта.
+    this.fallbackToAuthPhoto = true,
   });
 
   final String displayName;
   final String? photoUrl;
   final Uint8List? previewBytes;
   final double radius;
+  final bool fallbackToAuthPhoto;
 
   String? _effectiveUrl() {
     final p = photoUrl?.trim();
     if (p != null && p.isNotEmpty) return p;
+    if (!fallbackToAuthPhoto) return null;
     final a = FirebaseAuth.instance.currentUser?.photoURL;
     if (a != null && a.isNotEmpty) return a;
     return null;

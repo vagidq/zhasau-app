@@ -9,11 +9,13 @@ import '../services/auth_service.dart';
 import '../services/local_auth_service.dart';
 import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
+import '../services/admin_service.dart';
 import '../services/push_notification_bridge.dart';
 import 'splash_screen.dart';
+import 'admin/admin_dashboard_screen.dart';
 import 'edit_profile_screen.dart';
 
-/// Почта для пункта «Поддержка» (замените на свою перед публикацией).
+/// Почта для пункта «Поддержка».
 const String _kSupportEmail = 'ruslan.zlobin.06@mail.ru';
 
 class SettingsScreen extends StatefulWidget {
@@ -27,6 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
   final LocalAuthService _localAuthService = LocalAuthService();
   final HabitService _habitService = HabitService();
+  final AdminService _adminService = AdminService();
   // Локальные состояния для свитчеров
   bool _notificationsEnabled = true;
   bool _soundEnabled = true;
@@ -78,7 +81,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Безопасность аккаунта — в настройках Google.',
         );
       } else {
-        _toast('Сброс пароля для этого способа входа недоступен из приложения.');
+        _toast(
+            'Сброс пароля для этого способа входа недоступен из приложения.');
       }
       return;
     }
@@ -191,12 +195,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (!ctx.mounted) return;
                     if (!launched) {
                       await Clipboard.setData(
-                    const ClipboardData(text: _kSupportEmail),
-                  );
+                        const ClipboardData(text: _kSupportEmail),
+                      );
                       if (!ctx.mounted) return;
                       Navigator.pop(ctx);
                       if (!mounted) return;
-                      _toast('Почта не открылась — адрес скопирован', isError: true);
+                      _toast('Почта не открылась — адрес скопирован',
+                          isError: true);
                       return;
                     }
                     if (!ctx.mounted) return;
@@ -204,8 +209,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   } catch (_) {
                     if (!ctx.mounted) return;
                     await Clipboard.setData(
-                    const ClipboardData(text: _kSupportEmail),
-                  );
+                      const ClipboardData(text: _kSupportEmail),
+                    );
                     if (!ctx.mounted) return;
                     Navigator.pop(ctx);
                     if (!mounted) return;
@@ -262,7 +267,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 22),
+                    icon:
+                        const Icon(Icons.arrow_back_ios_new_rounded, size: 22),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                   const Expanded(
@@ -297,12 +303,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         title: 'Профиль',
                         subtitle: [
                           AppStore.instance.userProfile.name,
-                          if (AppStore.instance.userProfile.email !=
-                                  null &&
+                          if (AppStore.instance.userProfile.email != null &&
                               AppStore.instance.userProfile.email!.isNotEmpty)
                             AppStore.instance.userProfile.email!,
                         ].join('\n'),
-                        trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                        trailing: Icon(Icons.chevron_right_rounded,
+                            color: AppColors.textMuted),
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute<void>(
@@ -316,7 +322,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.lock_rounded,
                         color: AppColors.warning,
                         title: 'Пароль и безопасность',
-                        trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                        trailing: Icon(Icons.chevron_right_rounded,
+                            color: AppColors.textMuted),
                         onTap: _openPasswordSecurity,
                       ),
                     ]),
@@ -331,7 +338,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.primary,
                         title: 'Уведомления',
                         value: _notificationsEnabled,
-                        onChanged: (v) => setState(() => _notificationsEnabled = v),
+                        onChanged: (v) =>
+                            setState(() => _notificationsEnabled = v),
                       ),
                       _divider(),
                       _settingsSwitch(
@@ -358,10 +366,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Секция Google Calendar
                     _sectionTitle('ИНТЕГРАЦИИ'),
                     ValueListenableBuilder<bool>(
-                      valueListenable: GoogleCalendarService.instance.isSyncEnabled,
+                      valueListenable:
+                          GoogleCalendarService.instance.isSyncEnabled,
                       builder: (context, syncEnabled, _) {
                         return ValueListenableBuilder<String?>(
-                          valueListenable: GoogleCalendarService.instance.accountEmail,
+                          valueListenable:
+                              GoogleCalendarService.instance.accountEmail,
                           builder: (context, email, _) {
                             return _settingsCard([
                               _settingsSwitch(
@@ -371,15 +381,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 value: syncEnabled,
                                 onChanged: (v) async {
                                   if (v) {
-                                    final ok = await GoogleCalendarService.instance.signIn();
+                                    final ok = await GoogleCalendarService
+                                        .instance
+                                        .signIn();
                                     if (!context.mounted) return;
                                     if (ok) {
                                       _toast('Google Calendar подключен!');
                                     } else {
-                                      _toast('Не удалось подключить', isError: true);
+                                      _toast('Не удалось подключить',
+                                          isError: true);
                                     }
                                   } else {
-                                    await GoogleCalendarService.instance.signOut();
+                                    await GoogleCalendarService.instance
+                                        .signOut();
                                     if (!context.mounted) return;
                                     _toast('Google Calendar отключен');
                                   }
@@ -389,21 +403,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               if (syncEnabled && email != null) ...[
                                 _divider(),
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12),
                                   child: Row(
                                     children: [
                                       Container(
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
                                           color: AppColors.blueLight,
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
                                         ),
-                                        child: Icon(Icons.email_outlined, color: AppColors.blue, size: 20),
+                                        child: Icon(Icons.email_outlined,
+                                            color: AppColors.blue, size: 20),
                                       ),
                                       const SizedBox(width: 16),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
                                               'Аккаунт',
@@ -430,35 +448,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 _divider(),
                                 ValueListenableBuilder<bool>(
-                                  valueListenable: GoogleCalendarService.instance.isSyncing,
+                                  valueListenable:
+                                      GoogleCalendarService.instance.isSyncing,
                                   builder: (context, syncing, _) {
                                     return InkWell(
                                       onTap: syncing ? null : () => _syncAll(),
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 14),
                                         child: Row(
                                           children: [
                                             Container(
                                               padding: const EdgeInsets.all(8),
                                               decoration: BoxDecoration(
                                                 color: AppColors.successLight,
-                                                borderRadius: BorderRadius.circular(10),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                               ),
                                               child: syncing
                                                   ? SizedBox(
                                                       width: 20,
                                                       height: 20,
-                                                      child: CircularProgressIndicator(
+                                                      child:
+                                                          CircularProgressIndicator(
                                                         strokeWidth: 2,
-                                                        color: AppColors.success,
+                                                        color:
+                                                            AppColors.success,
                                                       ),
                                                     )
-                                                  : Icon(Icons.sync_rounded, color: AppColors.success, size: 20),
+                                                  : Icon(Icons.sync_rounded,
+                                                      color: AppColors.success,
+                                                      size: 20),
                                             ),
                                             const SizedBox(width: 16),
                                             Expanded(
                                               child: Text(
-                                                syncing ? 'Синхронизация...' : 'Синхронизировать всё',
+                                                syncing
+                                                    ? 'Синхронизация...'
+                                                    : 'Синхронизировать всё',
                                                 style: TextStyle(
                                                   fontSize: 16,
                                                   fontWeight: FontWeight.w600,
@@ -466,7 +493,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                                 ),
                                               ),
                                             ),
-                                            Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                                            Icon(Icons.chevron_right_rounded,
+                                                color: AppColors.textMuted),
                                           ],
                                         ),
                                       ),
@@ -480,6 +508,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
 
+                    StreamBuilder<bool>(
+                      stream: _adminService.watchIsAdmin(),
+                      builder: (context, adminSnap) {
+                        if (adminSnap.data != true) {
+                          return const SizedBox.shrink();
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 24),
+                            _sectionTitle('АДМИНИСТРИРОВАНИЕ'),
+                            _settingsCard([
+                              _settingsItem(
+                                icon: Icons.admin_panel_settings_rounded,
+                                color: AppColors.primary,
+                                title: 'Панель администратора',
+                                subtitle: 'Пользователи и статистика',
+                                trailing: Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: AppColors.textMuted,
+                                ),
+                                onTap: () {
+                                  Navigator.of(context).push<void>(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          const AdminDashboardScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ]),
+                          ],
+                        );
+                      },
+                    ),
+
                     const SizedBox(height: 24),
 
                     // Секция Прочее
@@ -489,7 +553,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.help_outline_rounded,
                         color: AppColors.textLight,
                         title: 'Поддержка и помощь',
-                        trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                        trailing: Icon(Icons.chevron_right_rounded,
+                            color: AppColors.textMuted),
                         onTap: _openSupport,
                       ),
                       _divider(),
@@ -497,8 +562,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.info_outline_rounded,
                         color: AppColors.textLight,
                         title: 'О приложении',
-                        trailing: Text('Версия 1.0.0',
-                          style: TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w600),
+                        trailing: Text(
+                          'Версия 1.0.0',
+                          style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600),
                         ),
                         onTap: () => _toast('Zhasau App v1.0.0'),
                       ),
@@ -532,7 +601,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: Text('Выйти из аккаунта',
+                        child: Text(
+                          'Выйти из аккаунта',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,

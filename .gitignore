@@ -41,10 +41,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
 
 # Firebase — ключи приложения (не коммитить); firebase.json, .firebaserc и правила — в репозитории
 **/google-services.json
 **/GoogleService-Info.plist
+serviceAccountKey.json
 .flutter-plugins
 
 # Local environment / кэши

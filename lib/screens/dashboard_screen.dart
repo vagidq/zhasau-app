@@ -29,6 +29,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final Set<String> _pendingDelete = {};
   final Map<String, Timer> _deleteTimers = {};
   final Set<String> _dismissed = {};
+  /// Сразу убирает карточку после свайпа, пока [AppStore.deleteTask] не завершился (иначе Dismissible падает).
+  final Set<String> _dismissedGoalTaskIds = {};
 
   final _quickAddController = TextEditingController();
   final _quickAddFocus = FocusNode();
@@ -447,6 +449,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 t.goalId != null &&
                                 t.goalId!.isNotEmpty &&
                                 !t.completed &&
+                                !_dismissedGoalTaskIds.contains(t.id) &&
                                 (t.scheduledAt == null ||
                                     sameCalendarDay(t.scheduledAt!)))
                             .toList();
@@ -478,6 +481,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 t.goalId != null &&
                                 t.goalId!.isNotEmpty &&
                                 !t.completed &&
+                                !_dismissedGoalTaskIds.contains(t.id) &&
                                 t.scheduledAt != null &&
                                 !sameCalendarDay(t.scheduledAt!))
                             .toList()
@@ -525,6 +529,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 t.goalId != null &&
                                 t.goalId!.isNotEmpty &&
                                 t.completed &&
+                                !_dismissedGoalTaskIds.contains(t.id) &&
                                 (t.scheduledAt == null ||
                                     sameCalendarDay(t.scheduledAt!)))
                             .toList();
@@ -735,8 +740,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                 ),
                                               ),
                                               onDismissed: (_) {
+                                                final shell =
+                                                    MainShell.maybeOf(context);
+                                                setState(() =>
+                                                    _dismissedGoalTaskIds
+                                                        .add(gTask.id));
                                                 AppStore.instance
-                                                    .deleteTask(gTask.id);
+                                                    .deleteTask(gTask.id)
+                                                    .catchError((_) {
+                                                  if (!mounted) return;
+                                                  setState(() =>
+                                                      _dismissedGoalTaskIds
+                                                          .remove(gTask.id));
+                                                  shell?.showToast(
+                                                    'Не удалось удалить задачу',
+                                                    isError: true,
+                                                  );
+                                                });
                                               },
                                               child: TaskItemWidget(
                                                 task:
@@ -959,9 +979,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                           ),
                                                         ),
                                                         onDismissed: (_) {
+                                                          final shell =
+                                                              MainShell
+                                                                  .maybeOf(
+                                                                      context);
+                                                          setState(() =>
+                                                              _dismissedGoalTaskIds
+                                                                  .add(
+                                                                      gTask
+                                                                          .id));
                                                           AppStore.instance
                                                               .deleteTask(
-                                                                  gTask.id);
+                                                                  gTask.id)
+                                                              .catchError(
+                                                                  (_) {
+                                                            if (!mounted) {
+                                                              return;
+                                                            }
+                                                            setState(() =>
+                                                                _dismissedGoalTaskIds
+                                                                    .remove(
+                                                                        gTask
+                                                                            .id));
+                                                            shell?.showToast(
+                                                              'Не удалось удалить задачу',
+                                                              isError: true,
+                                                            );
+                                                          });
                                                         },
                                                         child: TaskItemWidget(
                                                           task:
@@ -1138,8 +1182,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                   ),
                                                 ),
                                                 onDismissed: (_) {
+                                                  final shell =
+                                                      MainShell.maybeOf(
+                                                          context);
+                                                  setState(() =>
+                                                      _dismissedGoalTaskIds
+                                                          .add(gt.id));
                                                   AppStore.instance
-                                                      .deleteTask(gt.id);
+                                                      .deleteTask(gt.id)
+                                                      .catchError((_) {
+                                                    if (!mounted) return;
+                                                    setState(() =>
+                                                        _dismissedGoalTaskIds
+                                                            .remove(gt.id));
+                                                    shell?.showToast(
+                                                      'Не удалось удалить задачу',
+                                                      isError: true,
+                                                    );
+                                                  });
                                                 },
                                                 child: Opacity(
                                                   opacity: 0.6,
