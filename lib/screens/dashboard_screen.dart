@@ -10,6 +10,7 @@ import '../services/habit_service.dart';
 import '../services/google_calendar_service.dart';
 import '../widgets/goal_card_horizontal.dart';
 import '../widgets/task_item_widget.dart';
+import 'notifications_screen.dart';
 import 'main_shell.dart';
 import 'goal_detail_screen.dart';
 import 'create_habit_screen.dart';
@@ -92,10 +93,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                   const Spacer(),
-                  _IconBtnLight(
-                    icon: Icons.notifications_none_rounded,
-                    onTap: () =>
-                        MainShell.of(context).showToast('Уведомления пусты'),
+                  _NotificationBellButton(
+                    unread: AppStore.instance.unreadNotificationCount,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const NotificationsScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -1359,23 +1365,62 @@ Route _slideRoute(Widget page) => PageRouteBuilder(
       ),
     );
 
-class _IconBtnLight extends StatelessWidget {
-  final IconData icon;
+class _NotificationBellButton extends StatelessWidget {
+  final int unread;
   final VoidCallback onTap;
-  const _IconBtnLight({required this.icon, required this.onTap});
+
+  const _NotificationBellButton({
+    required this.unread,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: const Color(0xFFEDE9FE),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(icon, color: AppColors.primary, size: 22),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEDE9FE),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              unread > 0
+                  ? Icons.notifications_active_rounded
+                  : Icons.notifications_none_rounded,
+              color: AppColors.primary,
+              size: 22,
+            ),
+          ),
+          if (unread > 0)
+            Positioned(
+              right: -2,
+              top: -2,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.red,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.bgMain, width: 2),
+                ),
+                child: Text(
+                  unread > 99 ? '99+' : '$unread',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

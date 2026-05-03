@@ -1262,7 +1262,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _updateHabitTask(HabitModel old) async {
-    if (old.completed) {
+    if (old.isDoneForLocalDay(DateTime.now())) {
       if (!mounted) return;
       _toast(
         'Завершённую задачу нельзя редактировать',
