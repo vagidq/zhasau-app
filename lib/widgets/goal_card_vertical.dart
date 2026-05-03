@@ -19,7 +19,7 @@ class GoalCardVertical extends StatelessWidget {
     final progress = store.goalProgressPercent(goal.id);
     final tasksLeft = store.tasksLeft(goal.id);
     final colors = _goalColors(goal.color);
-    final categoryLabel = _categoryLabel(goal.color);
+    final categoryLabel = _categoryLabel(goal);
 
     return GestureDetector(
       onTap: onTap,
@@ -82,7 +82,7 @@ class GoalCardVertical extends StatelessWidget {
                   ),
                   child: Text(
                     goal.deadline != null
-                        ? 'до ${goal.deadline!.day}.${goal.deadline!.month}'
+                        ? _deadlineBadgeText(goal.deadline!)
                         : 'Без срока',
                     style: TextStyle(
                       color: AppColors.primaryDark,
@@ -205,13 +205,48 @@ _GoalColors _goalColors(GoalColor c) {
   }
 }
 
-String _categoryLabel(GoalColor c) {
-  switch (c) {
-    case GoalColor.warning:
-      return 'ЗДОРОВЬЕ';
-    case GoalColor.blue:
-      return 'УЧЁБА';
-    case GoalColor.success:
+String _deadlineBadgeText(DateTime d) {
+  const months = <String>[
+    '',
+    'янв',
+    'фев',
+    'мар',
+    'апр',
+    'мая',
+    'июн',
+    'июл',
+    'авг',
+    'сен',
+    'окт',
+    'ноя',
+    'дек',
+  ];
+  final m = months[d.month];
+  final y = DateTime.now().year;
+  if (d.year == y) {
+    return 'до ${d.day} $m';
+  }
+  return 'до ${d.day} $m ${d.year}';
+}
+
+String _categoryLabel(GoalModel goal) {
+  switch (goal.iconName.toLowerCase().trim()) {
+    case 'хобби':
+      return 'ХОББИ';
+    case 'образование':
+      return 'ОБРАЗОВАНИЕ';
+    case 'карьера':
       return 'КАРЬЕРА';
+    case 'здоровье':
+      return 'ЗДОРОВЬЕ';
+    default:
+      switch (goal.color) {
+        case GoalColor.warning:
+          return 'ЗДОРОВЬЕ';
+        case GoalColor.blue:
+          return 'ОБРАЗОВАНИЕ';
+        case GoalColor.success:
+          return 'КАРЬЕРА';
+      }
   }
 }

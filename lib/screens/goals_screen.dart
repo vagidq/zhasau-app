@@ -4,6 +4,7 @@ import '../widgets/goal_card_vertical.dart';
 import 'goal_detail_screen.dart';
 import 'create_goal_screen.dart';
 import '../models/app_store.dart';
+import '../models/goal_model.dart';
 
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key});
@@ -30,6 +31,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   void _onStoreChanged() {
     setState(() {});
+  }
+
+  /// Категория из [GoalModel.iconName] (как при создании цели), не из subtitle.
+  String _goalCategoryKey(GoalModel g) {
+    final icon = g.iconName.toLowerCase().trim();
+    const known = {'здоровье', 'образование', 'карьера', 'хобби'};
+    if (known.contains(icon)) return icon;
+    switch (g.color) {
+      case GoalColor.warning:
+        return 'здоровье';
+      case GoalColor.blue:
+        return 'образование';
+      case GoalColor.success:
+        return 'карьера';
+    }
+  }
+
+  bool _goalMatchesFilter(GoalModel g, int filterIndex) {
+    if (filterIndex == 0) return true;
+    return _goalCategoryKey(g) == _filters[filterIndex].toLowerCase();
   }
 
   @override
@@ -152,10 +173,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
                             height: 1, color: AppColors.borderDark),
                         const SizedBox(height: 20),
                         // Goal cards
-                        ...AppStore.instance.goals.where((g) {
-                          if (_activeFilter == 0) return true;
-                          return g.subtitle == _filters[_activeFilter];
-                        }).map(
+                        ...AppStore.instance.goals
+                            .where((g) => _goalMatchesFilter(g, _activeFilter))
+                            .map(
                           (g) => Padding(
                             padding: const EdgeInsets.only(bottom: 16),
                             child: Dismissible(

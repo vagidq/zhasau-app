@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +11,9 @@ import 'create_task_screen.dart';
 import 'shop_screen.dart';
 import 'profile_screen.dart';
 import '../models/app_store.dart';
+import '../models/habit_model.dart';
+import '../services/habit_service.dart';
+import '../services/local_notification_service.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -26,6 +32,9 @@ class MainShell extends StatefulWidget {
 class MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
+  StreamSubscription<List<HabitModel>>? _habitsNotifSub;
+  Timer? _habitsNotifDebounce;
+
   void setIndex(int index) => setState(() => _currentIndex = index);
 
   @override
@@ -33,6 +42,17 @@ class MainShellState extends State<MainShell> {
     super.initState();
     AppColors.isDarkMode.addListener(_onThemeChange);
     _loadUserData();
+    final mobile = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+    if (mobile) {
+      _habitsNotifSub = HabitService().getHabits().listen((list) {
+        _habitsNotifDebounce?.cancel();
+        _habitsNotifDebounce = Timer(const Duration(milliseconds: 500), () {
+          LocalNotificationService.instance.rescheduleHabitReminders(list);
+        });
+      });
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -74,6 +94,8 @@ class MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
+    _habitsNotifSub?.cancel();
+    _habitsNotifDebounce?.cancel();
     AppColors.isDarkMode.removeListener(_onThemeChange);
     super.dispose();
   }
