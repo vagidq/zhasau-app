@@ -1,4 +1,4 @@
-enum TagType { low, medium, high, repeat }
+enum TagType { high, medium, repeat }
 
 class TaskTag {
   final String text;
@@ -12,11 +12,13 @@ class TaskModel {
   final String title;
   final String subtitle;
   final String? goalId;
-  final num reward;   // монеты
-  final int xpReward; // XP
-  final bool isXp;   // legacy: для задач из цели где нет монет — reward это XP
+  /// Начало слота в календаре (задачи цели); для старых записей может быть null.
+  final DateTime? scheduledAt;
+  /// ID события в Google Calendar после синка.
+  final String? calendarEventId;
+  final num reward;
+  final bool isXp;
   final TaskTag? tag;
-  final int priority; // 0=Низкий, 1=Средний, 2=Высокий
   bool completed;
 
   TaskModel({
@@ -24,11 +26,11 @@ class TaskModel {
     required this.title,
     required this.subtitle,
     this.goalId,
+    this.scheduledAt,
+    this.calendarEventId,
     required this.reward,
-    this.xpReward = 0,
     required this.isXp,
     this.tag,
-    this.priority = 1,
     this.completed = false,
   });
 
@@ -37,11 +39,11 @@ class TaskModel {
     String? title,
     String? subtitle,
     String? goalId,
+    DateTime? scheduledAt,
+    String? calendarEventId,
     num? reward,
-    int? xpReward,
     bool? isXp,
     TaskTag? tag,
-    int? priority,
     bool? completed,
   }) {
     return TaskModel(
@@ -49,11 +51,11 @@ class TaskModel {
       title: title ?? this.title,
       subtitle: subtitle ?? this.subtitle,
       goalId: goalId ?? this.goalId,
+      scheduledAt: scheduledAt ?? this.scheduledAt,
+      calendarEventId: calendarEventId ?? this.calendarEventId,
       reward: reward ?? this.reward,
-      xpReward: xpReward ?? this.xpReward,
       isXp: isXp ?? this.isXp,
       tag: tag ?? this.tag,
-      priority: priority ?? this.priority,
       completed: completed ?? this.completed,
     );
   }

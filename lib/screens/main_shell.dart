@@ -17,6 +17,10 @@ class MainShell extends StatefulWidget {
 
   static MainShellState of(BuildContext context) =>
       context.findAncestorStateOfType<MainShellState>()!;
+
+  /// Когда экран открыт поверх стека ([Navigator.push]), у виджета может не быть [MainShell] над собой.
+  static MainShellState? maybeOf(BuildContext context) =>
+      context.findAncestorStateOfType<MainShellState>();
 }
 
 class MainShellState extends State<MainShell> {
@@ -93,11 +97,11 @@ class MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      DashboardScreen(),
-      GoalsScreen(),
-      CreateTaskScreen(),
-      ShopScreen(),
-      ProfileScreen(),
+      const DashboardScreen(),
+      const GoalsScreen(),
+      const CreateTaskScreen(),
+      const ShopScreen(),
+      const ProfileScreen(),
     ];
     return Scaffold(
       body: IndexedStack(
@@ -246,7 +250,7 @@ class _ToastWidgetState extends State<_ToastWidget>
               boxShadow: [
                 BoxShadow(
                   color: (widget.isError ? AppColors.red : AppColors.success)
-                      .withOpacity(0.4),
+                      .withValues(alpha: 0.4),
                   blurRadius: 15,
                   offset: const Offset(0, 4),
                 ),

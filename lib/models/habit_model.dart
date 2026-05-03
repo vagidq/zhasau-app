@@ -8,9 +8,12 @@ class HabitModel {
   final DateTime? completedAt;
   final bool isQuickTask;
   final int xpReward;
+  /// Coins granted when the habit is completed (see [AppStore.completeHabitTask]).
   final int coinReward;
   final DateTime? deadline;
   final String? calendarEventId;
+  /// Заметка к задаче (экран создания «Описание»).
+  final String notes;
 
   const HabitModel({
     this.id,
@@ -23,6 +26,7 @@ class HabitModel {
     this.coinReward = 0,
     this.deadline,
     this.calendarEventId,
+    this.notes = '',
   });
 
   /// True if this is a quick task whose deadline has passed without completion.
@@ -69,6 +73,7 @@ class HabitModel {
       coinReward: (data['coinReward'] as num?)?.toInt() ?? 0,
       deadline: deadline,
       calendarEventId: data['calendarEventId'] as String?,
+      notes: (data['notes'] ?? '').toString(),
     );
   }
 
@@ -83,6 +88,7 @@ class HabitModel {
       'coinReward': coinReward,
       if (deadline != null) 'deadline': Timestamp.fromDate(deadline!),
       if (calendarEventId != null) 'calendarEventId': calendarEventId,
+      if (notes.isNotEmpty) 'notes': notes,
     };
   }
 
@@ -98,6 +104,7 @@ class HabitModel {
     int? coinReward,
     DateTime? deadline,
     String? calendarEventId,
+    String? notes,
   }) {
     return HabitModel(
       id: id ?? this.id,
@@ -110,6 +117,7 @@ class HabitModel {
       coinReward: coinReward ?? this.coinReward,
       deadline: deadline ?? this.deadline,
       calendarEventId: calendarEventId ?? this.calendarEventId,
+      notes: notes ?? this.notes,
     );
   }
 }

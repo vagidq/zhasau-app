@@ -1,12 +1,48 @@
 rules_version = '2';
+// Схема приложения Zhasau (клиент Flutter):
+//   users/{uid}                    — профиль
+//   users/{uid}/goals/{goalId}
+//   users/{uid}/tasks/{taskId}
+//   users/{uid}/habits/{habitId}
+// Корневые коллекции tasks/goals/habits и т.д. клиентом не используются — закрыты явно.
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow authenticated users to read/write their own data
+
+    match /tasks/{document=**} {
+      allow read, write: if false;
+    }
+    match /goals/{document=**} {
+      allow read, write: if false;
+    }
+    match /habits/{document=**} {
+      allow read, write: if false;
+    }
+    match /user_balances/{document=**} {
+      allow read, write: if false;
+    }
+    match /user_rewards/{document=**} {
+      allow read, write: if false;
+    }
+    match /point_transactions/{document=**} {
+      allow read, write: if false;
+    }
+    match /action_logs/{document=**} {
+      allow read, write: if false;
+    }
+    match /periods/{document=**} {
+      allow read, write: if false;
+    }
+    match /task_periods/{document=**} {
+      allow read, write: if false;
+    }
+    match /rewards/{document=**} {
+      allow read, write: if false;
+    }
+
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Allow users to read/write their own user profile
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }

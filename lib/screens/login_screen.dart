@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
@@ -62,6 +63,7 @@ class _LoginScreenState extends State<LoginScreen>
       Object? firebaseError;
       try {
         await _authService.signIn(email, password);
+        await AppStore.instance.resetSession();
         await AppStore.instance.loadUserData();
         // Keep local credentials in sync for offline fallback
         await _localAuthService.signUp(
@@ -84,12 +86,14 @@ class _LoginScreenState extends State<LoginScreen>
             password: password,
           );
           if (loggedIn) {
+            await AppStore.instance.resetSession();
             AppStore.instance.initializeEmptyProfile();
             final localName = await _localAuthService.getName();
             if (localName != null && localName.isNotEmpty) {
               AppStore.instance.userProfile.name = localName;
-              AppStore.instance.refreshUI();
             }
+            AppStore.instance.userProfile.email = email;
+            AppStore.instance.refreshUI();
           }
         }
       }
@@ -119,12 +123,36 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   String _mapAuthError(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'user-not-found':
+          return 'Пользователь не найден';
+        case 'wrong-password':
+          return 'Неверный пароль';
+        case 'invalid-credential':
+          return 'Неверный email или пароль';
+        case 'invalid-email':
+          return 'Некорректный email';
+        case 'too-many-requests':
+          return 'Слишком много попыток, попробуйте позже';
+        case 'operation-not-allowed':
+          return 'В Firebase Console включите «Email/Password» (Authentication → Sign-in method).';
+        case 'network-request-failed':
+          return 'Нет подключения к сети';
+      }
+    }
     final message = error.toString();
     if (message.contains('user-not-found')) return 'Пользователь не найден';
     if (message.contains('wrong-password')) return 'Неверный пароль';
     if (message.contains('invalid-credential')) return 'Неверный email или пароль';
     if (message.contains('invalid-email')) return 'Некорректный email';
-    if (message.contains('too-many-requests')) return 'Слишком много попыток, попробуйте позже';
+    if (message.contains('too-many-requests')) {
+      return 'Слишком много попыток, попробуйте позже';
+    }
+    if (message.contains('operation-not-allowed') ||
+        message.contains('sign-in provider is disabled')) {
+      return 'В Firebase Console включите способ входа «Email/Password».';
+    }
     return 'Не удалось войти';
   }
 
@@ -163,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen>
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.primary.withOpacity(0.35),
+                                color: AppColors.primary.withValues(alpha: 0.35),
                                 blurRadius: 20,
                                 offset: const Offset(0, 8),
                               ),

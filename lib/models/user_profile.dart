@@ -1,6 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 class UserProfile {
   final String id;
   String name;
+  /// Почта из Firestore / регистрации (не путать с Google Calendar).
+  String? email;
   int level;
   int xp;
   final int xpPerLevel = 1000; // XP needed to level up
@@ -16,6 +20,7 @@ class UserProfile {
   UserProfile({
     required this.id,
     required this.name,
+    this.email,
     this.level = 1,
     this.xp = 0,
     this.coins = 0,
@@ -42,10 +47,10 @@ class UserProfile {
 
   // Add XP and auto-level up
   void addXp(int amount) {
-    print('DEBUG: addXp called with amount=$amount, xp before=$xp');
+    debugPrint('DEBUG: addXp called with amount=$amount, xp before=$xp');
     xp += amount;
     level = calculateLevel(xp);
-    print('DEBUG: addXp done, xp after=$xp, level=$level');
+    debugPrint('DEBUG: addXp done, xp after=$xp, level=$level');
   }
 
   // Add coins
@@ -97,6 +102,7 @@ class UserProfile {
   // Create copy with updates
   UserProfile copyWith({
     String? name,
+    String? email,
     int? level,
     int? xp,
     int? coins,
@@ -110,6 +116,7 @@ class UserProfile {
     return UserProfile(
       id: id,
       name: name ?? this.name,
+      email: email ?? this.email,
       level: level ?? this.level,
       xp: xp ?? this.xp,
       coins: coins ?? this.coins,

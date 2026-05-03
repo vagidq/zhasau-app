@@ -283,6 +283,18 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               child: TaskItemWidget(
                                 task: t,
                                 onToggle: () => _toggleTask(t, goalTasks),
+                                onContentTap: t.completed
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).push<void>(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => CreateTaskScreen(
+                                              isFullPage: true,
+                                              taskToEdit: t,
+                                            ),
+                                          ),
+                                        );
+                                      },
                               ),
                             ),
                           ),
@@ -299,7 +311,16 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               right: 20,
               bottom: 20,
               child: GestureDetector(
-                onTap: () => _navigateToCreateTask(context),
+                onTap: () {
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CreateTaskScreen(
+                        isFullPage: true,
+                        initialGoalId: widget.goalId,
+                      ),
+                    ),
+                  );
+                },
                 child: Container(
                   width: 60,
                   height: 60,
@@ -326,28 +347,22 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   }
 
   void _toggleTask(TaskModel task, List<TaskModel> goalTasks) {
-    AppStore.instance.updateTask(task.copyWith(completed: !task.completed));
+    final xpPerTask = goalTasks.isEmpty
+        ? 500
+        : (500 / goalTasks.length).round();
+
+    final updatedTask = task.copyWith(
+      completed: !task.completed,
+      reward: xpPerTask,
+      isXp: true,
+    );
+
+    AppStore.instance.updateTask(updatedTask);
 
     if (!task.completed) {
-      // was uncompleted, now completing — show reward from the task itself
-      if (!task.isXp && task.reward > 0) {
-        _showSnack('+${task.reward} монет за задачу!');
-      } else if (task.isXp && task.reward > 0) {
-        _showSnack('+${task.reward} XP за задачу!');
-      } else {
-        _showSnack('Задача выполнена!');
-      }
+      // was uncompleted, now completing
+      _showSnack('+$xpPerTask XP за задачу!');
     }
   }
 
-  void _navigateToCreateTask(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CreateTaskScreen(
-          isFullPage: true,
-          initialGoalId: widget.goalId,
-        ),
-      ),
-    );
-  }
 }

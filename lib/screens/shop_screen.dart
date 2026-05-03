@@ -109,7 +109,7 @@ class _ShopScreenState extends State<ShopScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
+                                  color: Colors.white.withValues(alpha: 0.2),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(Icons.toll_rounded,
@@ -211,7 +211,7 @@ class _ShopScreenState extends State<ShopScreen> {
   Widget _placeholderCard() => Container(
         decoration: BoxDecoration(
           border: Border.all(
-              color: AppColors.primary.withOpacity(0.3), width: 2),
+              color: AppColors.primary.withValues(alpha: 0.3), width: 2),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -276,7 +276,7 @@ class _ShopItemCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.95),
+                      color: Colors.white.withValues(alpha: 0.95),
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: const [
                         BoxShadow(color: Color(0x1A000000), blurRadius: 5),

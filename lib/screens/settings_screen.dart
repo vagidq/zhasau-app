@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
+import 'main_shell.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_service.dart';
 import '../services/google_calendar_service.dart';
+import '../services/habit_service.dart';
 import 'splash_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -16,9 +18,29 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
   final LocalAuthService _localAuthService = LocalAuthService();
+  final HabitService _habitService = HabitService();
   // Локальные состояния для свитчеров
   bool _notificationsEnabled = true;
   bool _soundEnabled = true;
+
+  /// Экран открыт поверх стека из профиля — над виджетом может не быть [MainShell].
+  void _toast(String message, {bool isError = false}) {
+    final shell = MainShell.maybeOf(context);
+    if (shell != null) {
+      shell.showToast(message, isError: isError);
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.red : AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -32,30 +54,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     AppColors.isDarkMode.removeListener(_onThemeChange);
     super.dispose();
-  }
-
-  void _showToast(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          backgroundColor: isError ? AppColors.red : AppColors.success,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 90),
-          duration: const Duration(seconds: 2),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
   }
 
   @override
@@ -112,9 +110,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.person_rounded,
                         color: AppColors.blue,
                         title: 'Профиль',
-                        subtitle: AppStore.instance.userProfile.name,
+                        subtitle: [
+                          AppStore.instance.userProfile.name,
+                          if (AppStore.instance.userProfile.email !=
+                                  null &&
+                              AppStore.instance.userProfile.email!.isNotEmpty)
+                            AppStore.instance.userProfile.email!,
+                        ].join('\n'),
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => _showToast('Настройки профиля'),
+                        onTap: () => _toast('Настройки профиля'),
                       ),
                       _divider(),
                       _settingsItem(
@@ -122,7 +126,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.warning,
                         title: 'Пароль и безопасность',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => _showToast('Безопасность'),
+                        onTap: () => _toast('Безопасность'),
                       ),
                     ]),
 
@@ -177,16 +181,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 onChanged: (v) async {
                                   if (v) {
                                     final ok = await GoogleCalendarService.instance.signIn();
-                                    if (ok && mounted) {
-                                      _showToast('Google Calendar подключен!');
-                                    } else if (mounted) {
-                                      _showToast('Не удалось подключить', isError: true);
+                                    if (!context.mounted) return;
+                                    if (ok) {
+                                      _toast('Google Calendar подключен!');
+                                    } else {
+                                      _toast('Не удалось подключить', isError: true);
                                     }
                                   } else {
                                     await GoogleCalendarService.instance.signOut();
-                                    if (mounted) {
-                                      _showToast('Google Calendar отключен');
-                                    }
+                                    if (!context.mounted) return;
+                                    _toast('Google Calendar отключен');
                                   }
                                   setState(() {});
                                 },
@@ -295,7 +299,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.textLight,
                         title: 'Поддержка и помощь',
                         trailing: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                        onTap: () => _showToast('Раздел поддержки'),
+                        onTap: () => _toast('Раздел поддержки'),
                       ),
                       _divider(),
                       _settingsItem(
@@ -305,7 +309,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing: Text('Версия 1.0.0',
                           style: TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w600),
                         ),
-                        onTap: () => _showToast('Zhasau App v1.0.0'),
+                        onTap: () => _toast('Zhasau App v1.0.0'),
                       ),
                     ]),
 
@@ -318,7 +322,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: () async {
                           await _authService.signOut();
                           await _localAuthService.signOut();
-                          if (!mounted) return;
+                          await AppStore.instance.resetSession();
+                          if (!context.mounted) return;
                           Navigator.of(context).pushAndRemoveUntil(
                             PageRouteBuilder(
                               pageBuilder: (_, __, ___) => const SplashScreen(),
@@ -357,25 +362,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _syncAll() async {
     final gcal = GoogleCalendarService.instance;
-    final store = AppStore.instance;
-    final goals = store.goals;
     gcal.isSyncing.value = true;
 
     try {
+      final habits = await _habitService.getAllHabitsOnce();
+      for (final habit in habits) {
+        final eventId = await gcal.syncHabitToCalendar(habit);
+        if (eventId != null &&
+            eventId.isNotEmpty &&
+            eventId != habit.calendarEventId &&
+            habit.id != null &&
+            habit.id!.isNotEmpty) {
+          await _habitService.updateHabit(
+            habit.copyWith(calendarEventId: eventId),
+          );
+        }
+      }
+
+      final store = AppStore.instance;
+      for (final goal in store.goals) {
+        for (final task in store.tasks.where((t) => t.goalId == goal.id)) {
+          final eventId = await gcal.syncGoalTaskToCalendar(task, goal);
+          if (eventId != null &&
+              eventId.isNotEmpty &&
+              eventId != task.calendarEventId) {
+            await store.updateTask(task.copyWith(calendarEventId: eventId));
+          }
+        }
+      }
+
+      final goals = AppStore.instance.goals;
       for (final goal in goals) {
         final eventId = await gcal.syncGoalToCalendar(goal);
-        // Save calendarEventId back to Firestore if it was newly created
-        // so next sync updates instead of creating a duplicate.
-        if (eventId != null && eventId != goal.calendarEventId) {
-          await store.updateGoal(goal.copyWith(calendarEventId: eventId));
+        if (eventId != null &&
+            eventId.isNotEmpty &&
+            eventId != goal.calendarEventId) {
+          await AppStore.instance
+              .updateGoal(goal.copyWith(calendarEventId: eventId));
         }
       }
       if (mounted) {
-        _showToast('Синхронизация завершена!');
+        _toast('Синхронизация завершена!');
       }
     } catch (e) {
       if (mounted) {
-        _showToast('Ошибка синхронизации', isError: true);
+        _toast('Ошибка синхронизации', isError: true);
       }
     } finally {
       gcal.isSyncing.value = false;
@@ -430,7 +461,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 20),
@@ -482,7 +513,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 20),

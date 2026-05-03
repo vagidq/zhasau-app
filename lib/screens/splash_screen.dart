@@ -71,10 +71,14 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       AppStore.instance.initializeEmptyProfile();
       final localName = await _localAuthService.getName();
+      final localEmail = await _localAuthService.getEmail();
       if (localName != null && localName.isNotEmpty) {
         AppStore.instance.userProfile.name = localName;
-        AppStore.instance.refreshUI();
       }
+      if (localEmail != null && localEmail.isNotEmpty) {
+        AppStore.instance.userProfile.email = localEmail;
+      }
+      AppStore.instance.refreshUI();
     }
 
     if (!mounted) return;
@@ -151,7 +155,7 @@ class _SplashScreenState extends State<SplashScreen>
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.primary.withOpacity(0.4),
+                              color: AppColors.primary.withValues(alpha: 0.4),
                               blurRadius: 28,
                               offset: const Offset(0, 12),
                             ),
@@ -301,7 +305,7 @@ class _SplashScreenState extends State<SplashScreen>
         color: AppColors.primaryLight,
         borderRadius: BorderRadius.circular(30),
         border: Border.all(
-          color: AppColors.primary.withOpacity(0.2),
+          color: AppColors.primary.withValues(alpha: 0.2),
         ),
       ),
       child: Row(

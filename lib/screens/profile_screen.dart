@@ -393,7 +393,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               decoration: BoxDecoration(
                 color: a.color,
                 shape: BoxShape.circle,
-                border: Border.all(color: a.iconColor.withOpacity(0.3)),
+                border: Border.all(color: a.iconColor.withValues(alpha: 0.3)),
               ),
               child: Icon(a.icon, color: a.iconColor, size: 28),
             ),
@@ -431,7 +431,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 decoration: BoxDecoration(
                   color: a.color,
                   shape: BoxShape.circle,
-                  border: Border.all(color: a.iconColor.withOpacity(0.3), width: 2),
+                  border: Border.all(color: a.iconColor.withValues(alpha: 0.3), width: 2),
                 ),
                 child: Icon(a.icon, color: a.iconColor, size: 40),
               ),
