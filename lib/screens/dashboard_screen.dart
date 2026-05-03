@@ -10,6 +10,7 @@ import '../services/habit_service.dart';
 import '../services/google_calendar_service.dart';
 import '../widgets/goal_card_horizontal.dart';
 import '../widgets/task_item_widget.dart';
+import '../widgets/user_avatar.dart';
 import 'notifications_screen.dart';
 import 'main_shell.dart';
 import 'goal_detail_screen.dart';
@@ -65,31 +66,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ─── Top Bar ──────────────────────────────────────────────
+            // ─── Top bar: бренд без чужого аватара; фото — в карточке приветствия
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              padding: const EdgeInsets.fromLTRB(20, 14, 16, 4),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(shape: BoxShape.circle),
-                    child: ClipOval(
-                      child: Image.network(
-                        'https://i.pravatar.cc/150?img=11',
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => CircleAvatar(
-                          backgroundColor: AppColors.primaryLight,
-                          child: Icon(Icons.person, color: AppColors.primary),
-                        ),
+                  ShaderMask(
+                    blendMode: BlendMode.srcIn,
+                    shaderCallback: (bounds) => LinearGradient(
+                      colors: [
+                        AppColors.primaryDark,
+                        AppColors.primary,
+                      ],
+                    ).createShader(bounds),
+                    child: const Text(
+                      'Zhasau',
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.8,
+                        color: Colors.white,
+                        height: 1.1,
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text('Zhasau',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const Spacer(),
@@ -133,23 +132,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          RichText(
-                            text: TextSpan(
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textDark,
-                              ),
-                              children: [
-                                const TextSpan(text: 'Привет, '),
-                                TextSpan(
-                                  text: '${user.name}!',
-                                  style: TextStyle(
-                                      color: AppColors.primary),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.textDark,
+                                      height: 1.15,
+                                    ),
+                                    children: [
+                                      const TextSpan(text: 'Привет, '),
+                                      TextSpan(
+                                        text: '${user.name}!',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ],
-                            ),
+                              ),
+                              UserAvatar(
+                                displayName: user.name,
+                                photoUrl: user.photoUrl,
+                                radius: 26,
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 16),
                           // Stats row
@@ -242,61 +254,90 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     const SizedBox(height: 20),
 
-                    // Quick add box — настоящий TextFiled с клавиатурой
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.bgWhite,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.primaryLight),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x05943EEA),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _quickAddController,
-                              focusNode: _quickAddFocus,
-                              decoration: InputDecoration(
-                                hintText: 'Что нужно сделать?',
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                                hintStyle: TextStyle(
-                                  color: AppColors.textLight,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: AppColors.textDark,
-                              ),
-                              textInputAction: TextInputAction.done,
-                              onSubmitted: (text) => _submitQuickAdd(text),
-                            ),
-                          ),
-                          GestureDetector(
-                            onTap: () => _submitQuickAdd(
-                                _quickAddController.text),
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(Icons.send_rounded,
-                                  color: Colors.white, size: 20),
-                            ),
-                          ),
-                        ],
+                    Text(
+                      'Быстрая задача',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMuted,
+                        letterSpacing: 0.2,
                       ),
                     ),
-
+                    const SizedBox(height: 10),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.bgWhite,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: AppColors.borderDark.withValues(alpha: 0.65),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 32,
+                            offset: const Offset(0, 12),
+                          ),
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.06),
+                            blurRadius: 20,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _quickAddController,
+                                focusNode: _quickAddFocus,
+                                decoration: InputDecoration(
+                                  hintText: 'Запишите задачу на сегодня…',
+                                  border: InputBorder.none,
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 14,
+                                  ),
+                                  hintStyle: TextStyle(
+                                    color: AppColors.textLight,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.textDark,
+                                ),
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: _submitQuickAdd,
+                              ),
+                            ),
+                            Material(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(16),
+                              clipBehavior: Clip.antiAlias,
+                              child: InkWell(
+                                onTap: () =>
+                                    _submitQuickAdd(_quickAddController.text),
+                                child: const SizedBox(
+                                  width: 50,
+                                  height: 50,
+                                  child: Icon(
+                                    Icons.arrow_upward_rounded,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(
@@ -307,16 +348,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           );
                         },
-                        icon: Icon(
-                          Icons.auto_awesome_rounded,
-                          color: AppColors.primary,
-                          size: 20,
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 8,
+                          ),
                         ),
-                        label: Text(
+                        icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+                        label: const Text(
                           'Добавить привычку',
                           style: TextStyle(
-                            color: AppColors.primary,
                             fontWeight: FontWeight.w600,
+                            fontSize: 15,
                           ),
                         ),
                       ),

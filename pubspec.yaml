@@ -25,6 +25,8 @@ dependencies:
   flutter_timezone: ^5.0.2
   firebase_messaging: ^15.2.10
   cloud_functions: ^5.6.2
+  firebase_storage: ^12.4.10
+  image_picker: ^1.2.2
 
 dev_dependencies:
   flutter_test:

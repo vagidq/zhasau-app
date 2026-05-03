@@ -64,7 +64,7 @@ class UserService {
       return snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         GoalColor color;
-        switch (data['color'] as String?) {
+        switch ((data['color'] as String?)?.toLowerCase()) {
           case 'warning':
             color = GoalColor.warning;
             break;

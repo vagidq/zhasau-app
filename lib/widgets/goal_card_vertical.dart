@@ -230,7 +230,7 @@ String _deadlineBadgeText(DateTime d) {
 }
 
 String _categoryLabel(GoalModel goal) {
-  switch (goal.iconName.toLowerCase().trim()) {
+  switch (goal.categoryFilterKey) {
     case 'хобби':
       return 'ХОББИ';
     case 'образование':
@@ -240,13 +240,6 @@ String _categoryLabel(GoalModel goal) {
     case 'здоровье':
       return 'ЗДОРОВЬЕ';
     default:
-      switch (goal.color) {
-        case GoalColor.warning:
-          return 'ЗДОРОВЬЕ';
-        case GoalColor.blue:
-          return 'ОБРАЗОВАНИЕ';
-        case GoalColor.success:
-          return 'КАРЬЕРА';
-      }
+      return 'ЦЕЛЬ';
   }
 }

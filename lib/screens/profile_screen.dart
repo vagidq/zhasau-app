@@ -1,8 +1,8 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../achievements/achievement_catalog.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
+import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
 import 'settings_screen.dart';
 
@@ -31,31 +31,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _resolveAvatarWidget() {
-    final url = () {
-      final user = AppStore.instance.userProfile;
-      final p = user.photoUrl?.trim();
-      if (p != null && p.isNotEmpty) return p;
-      final a = FirebaseAuth.instance.currentUser?.photoURL;
-      if (a != null && a.isNotEmpty) return a;
-      return null;
-    }();
-    if (url != null) {
-      return Image.network(
-        url,
-        fit: BoxFit.cover,
-        width: 102,
-        height: 102,
-        errorBuilder: (_, __, ___) => CircleAvatar(
-          backgroundColor: AppColors.primaryLight,
-          radius: 51,
-          child: Icon(Icons.person, color: AppColors.primary, size: 50),
-        ),
-      );
-    }
-    return CircleAvatar(
-      backgroundColor: AppColors.primaryLight,
+    final user = AppStore.instance.userProfile;
+    return UserAvatar(
+      displayName: user.name,
+      photoUrl: user.photoUrl,
       radius: 51,
-      child: Icon(Icons.person, color: AppColors.primary, size: 50),
     );
   }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,28 +11,65 @@ import 'services/google_calendar_service.dart';
 import 'services/local_notification_service.dart';
 import 'services/push_notification_bridge.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  if (!kIsWeb) {
+/// Пуши и локальные уведомления — после первого кадра.
+Future<void> _initMessagingAfterFirstFrame() async {
+  if (kIsWeb) return;
+  try {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (e, st) {
+    debugPrint('FCM onBackgroundMessage: $e\n$st');
   }
-  await LocalNotificationService.instance.init();
-  await GoogleCalendarService.instance.init();
-  final mobile = !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+  // Сначала FCM (свой запрос прав), потом локальные — меньше конфликтов «permissionRequestInProgress».
+  final mobile = defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
   if (mobile) {
-    await PushNotificationBridge.init();
+    try {
+      await PushNotificationBridge.init();
+    } catch (e, st) {
+      debugPrint('PushNotificationBridge.init: $e\n$st');
+    }
   }
-  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-    ),
+  try {
+    await LocalNotificationService.instance.init();
+  } catch (e, st) {
+    debugPrint('LocalNotificationService.init: $e\n$st');
+  }
+}
+
+void main() {
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      PlatformDispatcher.instance.onError = (error, stack) {
+        if (error is MissingPluginException) {
+          debugPrint('MissingPlugin (игнор): $error');
+          return true;
+        }
+        debugPrint('PlatformDispatcher error: $error\n$stack');
+        return false;
+      };
+
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      try {
+        await GoogleCalendarService.instance.init();
+      } catch (e, st) {
+        debugPrint('GoogleCalendarService.init: $e\n$st');
+      }
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+        ),
+      );
+      runApp(const ZhasauApp());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_initMessagingAfterFirstFrame());
+      });
+    },
+    (e, st) => debugPrint('Uncaught zone error: $e\n$st'),
   );
-  runApp(const ZhasauApp());
 }

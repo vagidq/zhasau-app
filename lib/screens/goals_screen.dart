@@ -33,24 +33,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
     setState(() {});
   }
 
-  /// Категория из [GoalModel.iconName] (как при создании цели), не из subtitle.
-  String _goalCategoryKey(GoalModel g) {
-    final icon = g.iconName.toLowerCase().trim();
-    const known = {'здоровье', 'образование', 'карьера', 'хобби'};
-    if (known.contains(icon)) return icon;
-    switch (g.color) {
-      case GoalColor.warning:
-        return 'здоровье';
-      case GoalColor.blue:
-        return 'образование';
-      case GoalColor.success:
-        return 'карьера';
-    }
-  }
-
   bool _goalMatchesFilter(GoalModel g, int filterIndex) {
     if (filterIndex == 0) return true;
-    return _goalCategoryKey(g) == _filters[filterIndex].toLowerCase();
+    return g.categoryFilterKey == _filters[filterIndex].toLowerCase();
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
@@ -14,6 +15,10 @@ class LocalNotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  /// Нативный плагин недоступен (hot restart, сбой регистрации и т.п.) — не дёргать channel повторно.
+  bool _nativeUnavailable = false;
+  /// Один параллельный init (иначе два вызова → «permissionRequestInProgress»).
+  Future<void>? _initFuture;
 
   static const _habitChannelId = 'habit_reminders';
   static const _habitChannelName = 'Привычки';
@@ -22,8 +27,29 @@ class LocalNotificationService {
 
   int _stableNotifId(String key) => key.hashCode & 0x7FFFFFFF;
 
+  Future<void> _withAndroidPermissionRetry(Future<dynamic> Function() request) async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      try {
+        await request();
+        return;
+      } on PlatformException catch (e) {
+        if (e.code == 'permissionRequestInProgress') {
+          await Future<void>.delayed(Duration(milliseconds: 120 * (attempt + 1)));
+          continue;
+        }
+        rethrow;
+      }
+    }
+  }
+
   Future<void> init() async {
-    if (_initialized) return;
+    if (_initialized || _nativeUnavailable) return;
+    _initFuture ??= _initInternal();
+    await _initFuture!;
+  }
+
+  Future<void> _initInternal() async {
+    if (_initialized || _nativeUnavailable) return;
 
     tzdata.initializeTimeZones();
     try {
@@ -35,31 +61,41 @@ class LocalNotificationService {
       tz.setLocalLocation(tz.UTC);
     }
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings();
-    await _plugin.initialize(
-      settings: const InitializationSettings(
-        android: androidInit,
-        iOS: iosInit,
-      ),
-    );
+    try {
+      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosInit = DarwinInitializationSettings();
+      await _plugin.initialize(
+        settings: const InitializationSettings(
+          android: androidInit,
+          iOS: iosInit,
+        ),
+      );
 
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      await android?.requestNotificationsPermission();
-      await android?.requestExactAlarmsPermission();
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final android = _plugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+        if (android != null) {
+          await _withAndroidPermissionRetry(
+              () => android.requestNotificationsPermission());
+          await _withAndroidPermissionRetry(
+              () => android.requestExactAlarmsPermission());
+        }
+      }
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await _plugin
+            .resolvePlatformSpecificImplementation<
+                IOSFlutterLocalNotificationsPlugin>()
+            ?.requestPermissions(alert: true, badge: true, sound: true);
+      }
+
+      await _ensureAndroidChannels();
+
+      _initialized = true;
+    } catch (e, st) {
+      _nativeUnavailable = true;
+      _initFuture = null;
+      debugPrint('flutter_local_notifications init failed: $e\n$st');
     }
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      await _plugin
-          .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(alert: true, badge: true, sound: true);
-    }
-
-    await _ensureAndroidChannels();
-
-    _initialized = true;
   }
 
   Future<void> _ensureAndroidChannels() async {
@@ -80,7 +116,7 @@ class LocalNotificationService {
     ));
   }
 
-  NotificationDetails get _habitDetails => NotificationDetails(
+  NotificationDetails get _habitDetails => const NotificationDetails(
         android: AndroidNotificationDetails(
           _habitChannelId,
           _habitChannelName,
@@ -88,17 +124,17 @@ class LocalNotificationService {
           importance: Importance.high,
           priority: Priority.high,
         ),
-        iOS: const DarwinNotificationDetails(),
+        iOS: DarwinNotificationDetails(),
       );
 
-  NotificationDetails get _remoteDetails => NotificationDetails(
+  NotificationDetails get _remoteDetails => const NotificationDetails(
         android: AndroidNotificationDetails(
           _remoteChannelId,
           _remoteChannelName,
           channelDescription: 'Уведомления из облака',
           importance: Importance.defaultImportance,
         ),
-        iOS: const DarwinNotificationDetails(),
+        iOS: DarwinNotificationDetails(),
       );
 
   tz.TZDateTime _nextDailyTime(int hour, int minute) {
@@ -136,8 +172,8 @@ class LocalNotificationService {
 
   /// Пересобрать все отложенные напоминания привычек (после загрузки из Firestore).
   Future<void> rescheduleHabitReminders(List<HabitModel> habits) async {
-    if (!_initialized) await init();
-    if (kIsWeb) return;
+    if (!_initialized && !_nativeUnavailable) await init();
+    if (!_initialized || kIsWeb) return;
     if (defaultTargetPlatform != TargetPlatform.android &&
         defaultTargetPlatform != TargetPlatform.iOS) {
       return;
@@ -157,7 +193,7 @@ class LocalNotificationService {
         final minute = int.tryParse(parts[1]);
         if (hour == null || minute == null) continue;
 
-        final title = 'Привычка';
+        const title = 'Привычка';
         final body = h.title.length > 100
             ? '${h.title.substring(0, 100)}…'
             : h.title;
@@ -207,8 +243,8 @@ class LocalNotificationService {
 
   /// Показать уведомление из FCM, когда приложение на экране.
   Future<void> showRemoteNotification(RemoteNotification notification) async {
-    if (!_initialized) await init();
-    if (kIsWeb) return;
+    if (!_initialized && !_nativeUnavailable) await init();
+    if (!_initialized || kIsWeb) return;
     if (defaultTargetPlatform != TargetPlatform.android &&
         defaultTargetPlatform != TargetPlatform.iOS) {
       return;
@@ -216,7 +252,7 @@ class LocalNotificationService {
 
     final title = notification.title ?? 'Zhasau';
     final body = notification.body ?? '';
-    final id = _stableNotifId('fcm|${title}|${body}|${DateTime.now().millisecondsSinceEpoch}');
+    final id = _stableNotifId('fcm|$title|$body|${DateTime.now().millisecondsSinceEpoch}');
     await _plugin.show(
       id: id,
       title: title,
