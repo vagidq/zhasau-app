@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
 import '../models/goal_model.dart';
-import '../models/goal_xp_rules.dart';
 import '../models/task_model.dart';
 
 class CreateGoalScreen extends StatefulWidget {
@@ -14,6 +14,7 @@ class CreateGoalScreen extends StatefulWidget {
 
 class _CreateGoalScreenState extends State<CreateGoalScreen> {
   int _selectedCategory = 0;
+  int _selectedRewardPreset = 1;
   bool _isCreating = false;
 
   final _titleController = TextEditingController();
@@ -24,6 +25,13 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
 
   // Inline task list
   final List<TextEditingController> _taskControllers = [];
+  static const Duration _cloudWait = Duration(seconds: 25);
+  final List<({String label, int xp, int coins})> _goalRewardPresets = const [
+    (label: 'Базовая', xp: 100, coins: 30),
+    (label: 'Стандарт', xp: 150, coins: 50),
+    (label: 'Сильная', xp: 250, coins: 90),
+    (label: 'Максимум', xp: 400, coins: 150),
+  ];
 
   final _categories = ['Здоровье', 'Образование', 'Карьера', 'Хобби'];
   final _categoryIcons = [
@@ -119,6 +127,16 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
         .where((t) => t.isNotEmpty)
         .toList();
 
+    final totalTasks = taskTitles.length;
+    final preset = _goalRewardPresets[_selectedRewardPreset];
+    final goalRewardXp = preset.xp;
+    final goalRewardCoins = preset.coins;
+
+    if (totalTasks == 0) {
+      _showSnack('Добавьте хотя бы одну задачу к цели', isError: true);
+      return;
+    }
+
     setState(() => _isCreating = true);
     try {
       final goalId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -126,37 +144,42 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
         id: goalId,
         title: _titleController.text.trim(),
         subtitle: _descriptionController.text.trim(),
-        badge: '0/${taskTitles.length}',
+        badge: '0/$totalTasks',
         iconName: _categories[_selectedCategory].toLowerCase(),
         color: colorMap[_selectedCategory]!,
         progress: 0,
-        tasksLeft: taskTitles.length,
+        tasksLeft: totalTasks,
         deadline: _deadline,
         startDate: _startDate,
+        xpCompletionBonus: goalRewardXp,
+        coinsCompletionBonus: goalRewardCoins,
       );
 
-      await AppStore.instance.addGoal(newGoal);
+      await AppStore.instance.addGoal(newGoal).timeout(_cloudWait);
 
       // Create linked tasks via AppStore (same authenticated service)
-      for (int i = 0; i < taskTitles.length; i++) {
-        final xp = GoalXpRules.taskXp(
-          pool: GoalXpRules.defaultTaskPool,
-          taskCount: taskTitles.length,
-          tag: const TaskTag(text: 'Средний', type: TagType.medium),
-        );
+      final newSpecs = taskTitles.map((t) => (
+            title: t,
+            subtitle: _categories[_selectedCategory],
+          ));
+      final allSpecs = [...newSpecs];
+
+      for (int i = 0; i < allSpecs.length; i++) {
+        final spec = allSpecs[i];
         final task = TaskModel(
           id: '${goalId}_task_$i',
-          title: taskTitles[i],
-          subtitle: _categories[_selectedCategory],
+          title: spec.title,
+          subtitle: spec.subtitle,
           goalId: goalId,
-          reward: xp,
+          reward: 0,
           isXp: true,
+          tag: const TaskTag(text: 'Средний', type: TagType.medium),
         );
-        final last = i == taskTitles.length - 1;
+        final last = i == allSpecs.length - 1;
         await AppStore.instance.addTask(
           task,
           rebalanceGoalRewards: last,
-        );
+        ).timeout(_cloudWait);
       }
 
       if (!mounted) return;
@@ -166,6 +189,12 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
     } on ArgumentError catch (e) {
       if (!mounted) return;
       _showSnack(e.message ?? 'Проверьте данные', isError: true);
+    } on TimeoutException {
+      if (!mounted) return;
+      _showSnack(
+        'Сервер долго не отвечает. Проверьте сеть эмулятора (Wi‑Fi/Cellular) и повторите.',
+        isError: true,
+      );
     } catch (e, st) {
       debugPrint('CreateGoal error: $e\n$st');
       _showSnack('Не удалось создать цель. Проверьте соединение.', isError: true);
@@ -176,6 +205,8 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final rewardXpPreview = _goalRewardPresets[_selectedRewardPreset].xp;
+    final rewardCoinsPreview = _goalRewardPresets[_selectedRewardPreset].coins;
     return Scaffold(
       backgroundColor: AppColors.bgMain,
       body: SafeArea(
@@ -424,7 +455,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Достижение цели = награды!',
+                                  'Награда за полное выполнение цели',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 14,
@@ -433,7 +464,7 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'За каждую задачу цели вы получаете XP и монеты',
+                                  'Когда закроете все задачи: +$rewardXpPreview XP и +$rewardCoinsPreview монет',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: AppColors.textMuted,
@@ -446,6 +477,80 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                       ),
                     ),
 
+                    _label('Награда за полное выполнение'),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const gap = 10.0;
+                        final itemWidth = (constraints.maxWidth - gap) / 2;
+                        return Wrap(
+                          spacing: gap,
+                          runSpacing: gap,
+                          children: List.generate(_goalRewardPresets.length, (i) {
+                            final p = _goalRewardPresets[i];
+                            final selected = i == _selectedRewardPreset;
+                            return SizedBox(
+                              width: itemWidth,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () => setState(() => _selectedRewardPreset = i),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 11,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? AppColors.primaryLight
+                                              .withValues(alpha: 0.45)
+                                          : AppColors.bgWhite,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        width: 1.4,
+                                        color: selected
+                                            ? AppColors.primary
+                                            : AppColors.borderDark,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          selected
+                                              ? Icons.check_circle_rounded
+                                              : Icons.circle_outlined,
+                                          size: 16,
+                                          color: selected
+                                              ? AppColors.primary
+                                              : AppColors.textLight,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            '${p.label}: +${p.xp} XP · +${p.coins}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: selected
+                                                  ? AppColors.primaryDark
+                                                  : AppColors.textDark,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        );
+                      },
+                    ),
+
                     // ── Linked tasks ────────────────────────────────────
                     _label('Задачи к цели'),
                     Container(
@@ -456,7 +561,17 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                         border: Border.all(color: AppColors.borderDark),
                       ),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(
+                            'Новые задачи',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textDark,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
                           // Existing task fields
                           for (int i = 0; i < _taskControllers.length; i++)
                             Padding(
@@ -478,7 +593,11 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                                         isDense: true,
                                         contentPadding: EdgeInsets.zero,
                                       ),
-                                      style: const TextStyle(fontSize: 15),
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: AppColors.textDark,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                   GestureDetector(
@@ -490,31 +609,32 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
                               ),
                             ),
 
-                          // Add button
-                          GestureDetector(
-                            onTap: _addTaskField,
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primaryLight,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(Icons.add_rounded,
-                                      color: AppColors.primary, size: 20),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _addTaskField,
+                              icon: const Icon(Icons.add_rounded),
+                              label: const Text('Добавить задачу'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: BorderSide(color: AppColors.primary),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Добавить задачу к цели',
-                                  style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              ],
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'При создании цели можно добавлять только новые задачи. '
+                            'Существующие задачи можно привязать уже в экране цели.',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12,
+                              height: 1.3,
                             ),
                           ),
                         ],
@@ -578,8 +698,14 @@ class _CreateGoalScreenState extends State<CreateGoalScreen> {
         ),
       );
 
-  Widget _inputField(TextEditingController ctrl, String hint) => TextField(
+  Widget _inputField(
+        TextEditingController ctrl,
+        String hint, {
+        TextInputType keyboardType = TextInputType.text,
+      }) =>
+      TextField(
         controller: ctrl,
+        keyboardType: keyboardType,
         decoration: InputDecoration(
           hintText: hint,
           filled: true,

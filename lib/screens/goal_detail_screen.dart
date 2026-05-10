@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
-import '../models/goal_xp_rules.dart';
 import '../models/task_model.dart';
+import '../models/habit_model.dart';
+import '../services/habit_service.dart';
 import '../widgets/task_item_widget.dart';
 import 'create_task_screen.dart';
 
@@ -15,6 +16,9 @@ class GoalDetailScreen extends StatefulWidget {
 }
 
 class _GoalDetailScreenState extends State<GoalDetailScreen> {
+  final HabitService _habitService = HabitService();
+  bool _attachingExistingTask = false;
+
   @override
   void initState() {
     super.initState();
@@ -55,16 +59,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     final progress = store.goalProgressPercent(widget.goalId);
 
     final rewardExplained = goalTasks.isEmpty
-        ? 'Добавьте задачи: пул ${goal.xpTaskPool} XP распределится между ними (деление поровну × приоритет). '
-            'После выполнения всех задач начисляется бонус +${goal.xpCompletionBonus} XP (сохраняется вместе с целью в вашем аккаунте).'
-        : () {
-            final n = goalTasks.length;
-            final base =
-                GoalXpRules.baseSharePerTask(goal.xpTaskPool, n);
-            return 'Сейчас $n задач(и). Пул ${goal.xpTaskPool} XP делится поровну '
-                '(база ~$base XP за шаг при «среднем» приоритете), затем × приоритет задачи. '
-                'За финиш всех задач — ещё +${goal.xpCompletionBonus} XP.';
-          }();
+        ? 'Добавьте задачи и выполните цель полностью, чтобы получить награду.'
+        : 'Когда все задачи будут выполнены, вы получите: '
+            '+${goal.xpCompletionBonus} XP и +${goal.coinsCompletionBonus} монет.';
 
     return Scaffold(
       backgroundColor: AppColors.bgMain,
@@ -210,7 +207,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                                       color: AppColors.primaryDark, size: 22),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'Награды по цели',
+                                    'Награда за цель',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 15,
@@ -366,16 +363,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               right: 20,
               bottom: 20,
               child: GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => CreateTaskScreen(
-                        isFullPage: true,
-                        initialGoalId: widget.goalId,
-                      ),
-                    ),
-                  );
-                },
+                onTap: _openAddTaskActions,
                 child: Container(
                   width: 60,
                   height: 60,
@@ -399,6 +387,410 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         ),
       ),
     );
+  }
+
+  void _openAddTaskActions() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.bgWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderDark,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Добавить задачу в цель',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _actionTile(
+                  icon: Icons.add_task_rounded,
+                  title: 'Создать новую задачу',
+                  subtitle: 'Откроется форма создания для этой цели',
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CreateTaskScreen(
+                          isFullPage: true,
+                          initialGoalId: widget.goalId,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                _actionTile(
+                  icon: Icons.playlist_add_check_rounded,
+                  title: 'Привязать существующую задачу',
+                  subtitle: 'Выберите из задач без цели',
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _showAttachExistingTasksSheet();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _actionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: AppColors.bgMain,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 20, color: AppColors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAttachExistingTasksSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.bgWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.7,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (_, controller) {
+            return Column(
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderDark,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Существующие задачи',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: Icon(Icons.close_rounded, color: AppColors.textDark),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: StreamBuilder<List<HabitModel>>(
+                    stream: _habitService.getHabits(),
+                    builder: (context, snap) {
+                      final list = (snap.data ?? const <HabitModel>[])
+                          .where((h) => !h.completed)
+                          .toList(growable: false);
+                      if (snap.connectionState == ConnectionState.waiting &&
+                          !snap.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (list.isEmpty) {
+                        return Center(
+                          child: Text(
+                            'Нет подходящих задач без цели',
+                            style: TextStyle(color: AppColors.textMuted),
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        controller: controller,
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                        itemCount: list.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (_, i) {
+                          final h = list[i];
+                          return Material(
+                            color: AppColors.bgMain,
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: () => _pickPriorityAndAttach(h, ctx),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.task_alt_rounded,
+                                        color: AppColors.primary),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            h.title,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.textDark,
+                                            ),
+                                          ),
+                                          if (h.notes.trim().isNotEmpty)
+                                            Text(
+                                              h.notes.trim(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: AppColors.textMuted,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Icon(Icons.chevron_right_rounded,
+                                        color: AppColors.textMuted),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _pickPriorityAndAttach(HabitModel habit, BuildContext sheetCtx) async {
+    if (_attachingExistingTask) return;
+    int selectedPriority = 1; // medium default
+    final options = <(int, String, Color)>[
+      (0, 'Низкий', AppColors.blue),
+      (1, 'Средний', AppColors.primary),
+      (2, 'Высокий', AppColors.warning),
+    ];
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AppColors.bgWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setLocal) {
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.borderDark,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Выберите приоритет',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: options
+                        .map(
+                          (entry) => Expanded(
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                  right: entry.$1 == options.last.$1 ? 0 : 8),
+                              child: Material(
+                                color: selectedPriority == entry.$1
+                                    ? entry.$3.withValues(alpha: 0.18)
+                                    : AppColors.bgMain,
+                                borderRadius: BorderRadius.circular(12),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () => setLocal(() {
+                                    selectedPriority = entry.$1;
+                                  }),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: selectedPriority == entry.$1
+                                            ? entry.$3
+                                            : AppColors.borderDark,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        entry.$2,
+                                        style: TextStyle(
+                                          color: selectedPriority == entry.$1
+                                              ? entry.$3
+                                              : AppColors.textDark,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(selectedPriority),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Добавить в цель'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    if (chosen == null) return;
+    if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+    if (!mounted) return;
+    setState(() => _attachingExistingTask = true);
+    try {
+      await _attachExistingHabitToGoal(habit, chosen);
+    } catch (e, st) {
+      debugPrint('Attach existing task error: $e\n$st');
+      if (mounted) {
+        _showSnack('Не удалось привязать задачу. Попробуйте снова.');
+      }
+    } finally {
+      if (mounted) setState(() => _attachingExistingTask = false);
+    }
+  }
+
+  Future<void> _attachExistingHabitToGoal(HabitModel habit, int priority) async {
+    final store = AppStore.instance;
+    final goalIndex = store.goals.indexWhere((g) => g.id == widget.goalId);
+    if (goalIndex == -1) return;
+    final goal = store.goals[goalIndex];
+    final tag = TaskTag(
+      text: priority == 2 ? 'Высокий' : (priority == 0 ? 'Низкий' : 'Средний'),
+      type: priority == 2
+          ? TagType.high
+          : (priority == 0 ? TagType.repeat : TagType.medium),
+    );
+    final when = habit.deadline ?? DateTime.now().add(const Duration(hours: 1));
+    final task = TaskModel(
+      id: 'task_${DateTime.now().microsecondsSinceEpoch}_${priority}_${habit.id ?? 'h'}',
+      title: habit.title,
+      subtitle: habit.notes.trim().isEmpty ? 'Цель: ${goal.title}' : habit.notes.trim(),
+      goalId: widget.goalId,
+      scheduledAt: when,
+      reward: 0,
+      isXp: true,
+      tag: tag,
+    );
+    await store.addTask(task).timeout(const Duration(seconds: 20));
+    if (habit.id != null && habit.id!.isNotEmpty) {
+      await _habitService.deleteHabit(habit.id!).timeout(const Duration(seconds: 20));
+    }
+    _showSnack('Задача привязана к цели');
   }
 
   void _toggleTask(TaskModel task, List<TaskModel> goalTasks) {

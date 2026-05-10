@@ -21,16 +21,22 @@ class _GoalsScreenState extends State<GoalsScreen> {
   void initState() {
     super.initState();
     AppStore.instance.addListener(_onStoreChanged);
+    AppColors.isDarkMode.addListener(_onThemeChanged);
   }
 
   @override
   void dispose() {
     AppStore.instance.removeListener(_onStoreChanged);
+    AppColors.isDarkMode.removeListener(_onThemeChanged);
     super.dispose();
   }
 
   void _onStoreChanged() {
     setState(() {});
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
   }
 
   bool _goalMatchesFilter(GoalModel g, int filterIndex) {
@@ -52,21 +58,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   child: Row(
                     children: [
-                      GestureDetector(
-                        onTap: () {},
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          child: Icon(Icons.menu_rounded,
-                              size: 26, color: AppColors.textDark),
-                        ),
-                      ),
-                      const Expanded(
+                      const SizedBox(width: 34),
+                      Expanded(
                         child: Center(
                           child: Text(
                             'Мои цели',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w700,
+                              color: AppColors.textDark,
                             ),
                           ),
                         ),
@@ -75,7 +75,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEDE9FE),
+                          color: AppColors.primaryLight,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(Icons.notifications_none_rounded,

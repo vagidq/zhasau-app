@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'app/app.dart';
@@ -10,6 +11,7 @@ import 'firebase_options.dart';
 import 'services/google_calendar_service.dart';
 import 'services/local_notification_service.dart';
 import 'services/push_notification_bridge.dart';
+import 'theme/app_colors.dart';
 
 /// Пуши и локальные уведомления — после первого кадра.
 Future<void> _initMessagingAfterFirstFrame() async {
@@ -53,8 +55,15 @@ void main() {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+      await AppColors.loadThemePreference();
       try {
         await GoogleCalendarService.instance.init();
+        FirebaseAuth.instance.authStateChanges().listen((user) {
+          unawaited(
+              GoogleCalendarService.instance.bindToFirebaseUser(user?.uid));
+        });
+        await GoogleCalendarService.instance
+            .bindToFirebaseUser(FirebaseAuth.instance.currentUser?.uid);
       } catch (e, st) {
         debugPrint('GoogleCalendarService.init: $e\n$st');
       }

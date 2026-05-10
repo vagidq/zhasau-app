@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import '../theme/app_theme.dart';
@@ -39,6 +40,16 @@ class ZhasauApp extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: AppColors.isDarkMode,
       builder: (context, isDark, _) {
+        SystemChrome.setSystemUIOverlayStyle(
+          SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor: AppColors.bgWhite,
+            systemNavigationBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+          ),
+        );
         return MaterialApp(
           title: 'Zhasau',
           debugShowCheckedModeBanner: false,

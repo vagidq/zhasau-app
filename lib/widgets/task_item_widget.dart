@@ -37,6 +37,15 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
+    final isDark = AppColors.isDarkMode.value;
+    final checkboxBorder = task.completed
+        ? AppColors.primary
+        : (isDark ? AppColors.primaryDark : AppColors.primaryLight);
+    final checkboxBg = task.completed
+        ? AppColors.primary
+        : (isDark
+            ? AppColors.primary.withValues(alpha: 0.14)
+            : Colors.transparent);
     return AnimatedOpacity(
       opacity: task.completed ? 0.65 : 1,
       duration: const Duration(milliseconds: 200),
@@ -65,13 +74,10 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color:
-                          task.completed ? AppColors.primary : Colors.transparent,
+                      color: checkboxBg,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: task.completed
-                            ? AppColors.primary
-                            : AppColors.primaryLight,
+                        color: checkboxBorder,
                         width: 2,
                       ),
                     ),

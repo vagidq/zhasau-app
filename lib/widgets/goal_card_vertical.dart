@@ -65,9 +65,10 @@ class GoalCardVertical extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         goal.title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
                         ),
                       ),
                     ],
@@ -99,10 +100,11 @@ class GoalCardVertical extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Прогресс',
+                Text('Прогресс',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
+                    color: AppColors.textDark,
                   ),
                 ),
                 Text(
@@ -183,23 +185,24 @@ class _GoalColors {
 }
 
 _GoalColors _goalColors(GoalColor c) {
+  final dark = AppColors.isDarkMode.value;
   switch (c) {
     case GoalColor.warning:
-      return const _GoalColors(
-        bg: Color(0xFFFFF3CD),
-        fg: Color(0xFF856404),
+      return _GoalColors(
+        bg: dark ? const Color(0xFF3F2B10) : const Color(0xFFFFF3CD),
+        fg: dark ? const Color(0xFFFCD34D) : const Color(0xFF856404),
         icon: Icons.fitness_center_rounded,
       );
     case GoalColor.blue:
-      return const _GoalColors(
-        bg: Color(0xFFD1ECF1),
-        fg: Color(0xFF0C5460),
+      return _GoalColors(
+        bg: dark ? const Color(0xFF102A43) : const Color(0xFFD1ECF1),
+        fg: dark ? const Color(0xFF93C5FD) : const Color(0xFF0C5460),
         icon: Icons.book_rounded,
       );
     case GoalColor.success:
-      return const _GoalColors(
-        bg: Color(0xFFD4EDDA),
-        fg: Color(0xFF155724),
+      return _GoalColors(
+        bg: dark ? const Color(0xFF123524) : const Color(0xFFD4EDDA),
+        fg: dark ? const Color(0xFF6EE7B7) : const Color(0xFF155724),
         icon: Icons.work_rounded,
       );
   }

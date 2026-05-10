@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart' as gcal;
@@ -16,8 +17,14 @@ class GoogleCalendarService {
   GoogleCalendarService._();
 
   // ── Keys ───────────────────────────────────────────────────────────────────
-  static const _kEnabled = 'gcal_sync_enabled';
+  /// До версии с привязкой к Firebase uid флаг был общим на устройство — из‑за этого
+  /// календарь «течёт» между аккаунтами приложения.
+  static const _kEnabledLegacy = 'gcal_sync_enabled';
+  static const _kPrefsMigratedPerUser = 'gcal_prefs_migrated_per_user_v2';
   static const _calendarId = 'primary';
+
+  static String _enabledPrefsKey(String firebaseUid) =>
+      'gcal_sync_enabled_$firebaseUid';
 
   // ── State ──────────────────────────────────────────────────────────────────
   final ValueNotifier<bool> isSyncEnabled = ValueNotifier(false);
@@ -28,13 +35,13 @@ class GoogleCalendarService {
   GoogleSignIn? _googleSignIn;
   GoogleSignInAccount? _currentUser;
   gcal.CalendarApi? _calendarApi;
+  /// Последний [User.uid], для которого применена синхронизация prefs + Google.
+  String? _boundFirebaseUid;
+  Future<void> _bindQueue = Future<void>.value();
 
   // ── Init ───────────────────────────────────────────────────────────────────
   /// Call once at app start (e.g. in main.dart or MainShell).
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    isSyncEnabled.value = prefs.getBool(_kEnabled) ?? false;
-
     _googleSignIn = GoogleSignIn(
       scopes: <String>[
         gcal.CalendarApi.calendarScope,
@@ -51,15 +58,71 @@ class GoogleCalendarService {
         _calendarApi = null;
       }
     });
+  }
 
-    // Try silent sign-in if sync was previously enabled
-    if (isSyncEnabled.value) {
+  /// Вызывать из [FirebaseAuth.authStateChanges]: отвязать Google-сессию при смене /
+  /// выходе из аккаунта Firebase и подставить флаг синхронизации для текущего uid.
+  Future<void> bindToFirebaseUser(String? firebaseUid) async {
+    _bindQueue = _bindQueue.then((_) async {
+      try {
+        await _bindToFirebaseUserImpl(firebaseUid);
+      } catch (e, st) {
+        debugPrint('bindToFirebaseUser: $e\n$st');
+      }
+    });
+    await _bindQueue;
+  }
+
+  Future<void> _bindToFirebaseUserImpl(String? firebaseUid) async {
+    if (_boundFirebaseUid == firebaseUid) return;
+
+    try {
+      await _googleSignIn?.signOut();
+    } catch (e) {
+      debugPrint('Google sign-out on user switch: $e');
+    }
+    _calendarApi = null;
+    _currentUser = null;
+    isSignedIn.value = false;
+    accountEmail.value = null;
+
+    _boundFirebaseUid = firebaseUid;
+
+    if (firebaseUid == null || firebaseUid.isEmpty) {
+      isSyncEnabled.value = false;
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = await _readAndMigrateSyncEnabled(prefs, firebaseUid);
+    isSyncEnabled.value = enabled;
+
+    if (enabled && _googleSignIn != null) {
       try {
         await _googleSignIn!.signInSilently();
       } catch (e) {
-        debugPrint('Google silent sign-in failed: $e');
+        debugPrint('Google silent sign-in after bind: $e');
       }
     }
+  }
+
+  Future<bool> _readAndMigrateSyncEnabled(
+    SharedPreferences prefs,
+    String firebaseUid,
+  ) async {
+    final key = _enabledPrefsKey(firebaseUid);
+    if (prefs.containsKey(key)) {
+      return prefs.getBool(key) ?? false;
+    }
+    final migrated = prefs.getBool(_kPrefsMigratedPerUser) ?? false;
+    if (!migrated) {
+      final legacy = prefs.getBool(_kEnabledLegacy) ?? false;
+      await prefs.setBool(key, legacy);
+      await prefs.remove(_kEnabledLegacy);
+      await prefs.setBool(_kPrefsMigratedPerUser, true);
+      return legacy;
+    }
+    return false;
   }
 
   Future<void> _initCalendarApi() async {
@@ -76,11 +139,18 @@ class GoogleCalendarService {
 
   // ── Sign In / Out ──────────────────────────────────────────────────────────
   Future<bool> signIn() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      debugPrint('Google Calendar sign-in: нет пользователя Firebase');
+      return false;
+    }
     try {
       final account = await _googleSignIn?.signIn();
       if (account != null) {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_kEnabled, true);
+        await prefs.setBool(_enabledPrefsKey(uid), true);
+        await prefs.remove(_kEnabledLegacy);
+        await prefs.setBool(_kPrefsMigratedPerUser, true);
         isSyncEnabled.value = true;
         return true;
       }
@@ -92,10 +162,13 @@ class GoogleCalendarService {
   }
 
   Future<void> signOut() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     try {
       await _googleSignIn?.signOut();
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_kEnabled, false);
+      if (uid != null && uid.isNotEmpty) {
+        await prefs.setBool(_enabledPrefsKey(uid), false);
+      }
       isSyncEnabled.value = false;
       isSignedIn.value = false;
       accountEmail.value = null;
@@ -140,8 +213,9 @@ class GoogleCalendarService {
       final event = gcal.Event()
         ..summary = title
         ..description = description ?? ''
-        ..start = gcal.EventDateTime(dateTime: start, timeZone: 'Asia/Almaty')
-        ..end = gcal.EventDateTime(dateTime: end, timeZone: 'Asia/Almaty');
+        // Используем UTC, чтобы Google сам применял часовой пояс аккаунта
+        ..start = gcal.EventDateTime(dateTime: start.toUtc())
+        ..end = gcal.EventDateTime(dateTime: end.toUtc());
 
       // Reminders
       if (reminderMinutes != null && reminderMinutes.isNotEmpty) {
@@ -186,10 +260,12 @@ class GoogleCalendarService {
       if (title != null) existing.summary = title;
       if (description != null) existing.description = description;
       if (start != null) {
-        existing.start = gcal.EventDateTime(dateTime: start, timeZone: 'Asia/Almaty');
+        existing.start =
+            gcal.EventDateTime(dateTime: start.toUtc());
       }
       if (end != null) {
-        existing.end = gcal.EventDateTime(dateTime: end, timeZone: 'Asia/Almaty');
+        existing.end =
+            gcal.EventDateTime(dateTime: end.toUtc());
       }
       if (colorId != null) existing.colorId = colorId;
 

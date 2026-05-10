@@ -18,6 +18,8 @@ class GoalModel {
 
   /// Бонус XP за выполнение всех задач цели; хранится в Firestore.
   final int xpCompletionBonus;
+  /// Бонус монет за выполнение всех задач цели; хранится в Firestore.
+  final int coinsCompletionBonus;
 
   /// Выдан ли бонус за «все задачи выполнены» (сбрасывается при откате или новой задаче).
   final bool completionBonusGranted;
@@ -36,6 +38,7 @@ class GoalModel {
     this.calendarEventId,
     this.xpTaskPool = 500,
     this.xpCompletionBonus = 150,
+    this.coinsCompletionBonus = 0,
     this.completionBonusGranted = false,
   }) : startDate = startDate ?? DateTime.now();
 
@@ -80,6 +83,7 @@ class GoalModel {
     String? calendarEventId,
     int? xpTaskPool,
     int? xpCompletionBonus,
+    int? coinsCompletionBonus,
     bool? completionBonusGranted,
   }) {
     return GoalModel(
@@ -96,6 +100,7 @@ class GoalModel {
       calendarEventId: calendarEventId ?? this.calendarEventId,
       xpTaskPool: xpTaskPool ?? this.xpTaskPool,
       xpCompletionBonus: xpCompletionBonus ?? this.xpCompletionBonus,
+      coinsCompletionBonus: coinsCompletionBonus ?? this.coinsCompletionBonus,
       completionBonusGranted:
           completionBonusGranted ?? this.completionBonusGranted,
     );

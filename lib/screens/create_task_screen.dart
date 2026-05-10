@@ -9,7 +9,6 @@ import '../services/habit_service.dart';
 import '../models/habit_model.dart';
 import '../models/app_store.dart';
 import '../models/goal_model.dart';
-import '../models/goal_xp_rules.dart';
 import '../models/task_model.dart';
 import 'main_shell.dart';
 
@@ -41,6 +40,8 @@ class CreateTaskScreen extends StatefulWidget {
 }
 
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
+  static const String _kTimeConflictText =
+      'В это время уже запланирована другая задача. Выберите другое время.';
   int _priority = 1; // 0=Low, 1=Med, 2=High
   double _complexity = 2;
   bool _repeat = false;
@@ -59,7 +60,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   bool _loadingEvents = false;
 
   final _priorities = ['Низкий', 'Средний', 'Высокий'];
-  final _repeats = ['Ежедневно', 'Еженедельно', 'Ежемесячно'];
+  final _repeats = ['Ежедневно', 'Еженедельно'];
 
   final HabitService _habitService = HabitService();
 
@@ -70,8 +71,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       widget.taskToEdit != null || widget.habitToEdit != null;
 
   /// Цель «заморожена» при создании из карточки цели или при редактировании задачи цели.
-  String? get _lockedGoalId =>
-      widget.taskToEdit?.goalId ?? widget.initialGoalId;
+  String? get _lockedGoalId => widget.initialGoalId;
 
   @override
   void initState() {
@@ -102,6 +102,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         _selectedTime = TimeOfDay(hour: d.hour, minute: d.minute);
       }
       _guessSlidersFromHabitRewards(habitEdit);
+      _repeat = habitEdit.isRecurring;
+      if (habitEdit.isRecurring) {
+        _repeatIndex = (habitEdit.repeatWeekdays.isEmpty) ? 0 : 1;
+      }
     }
     _syncToCalendar = GoogleCalendarService.instance.isSyncEnabled.value;
     _loadEventsForDate(_selectedDate);
@@ -271,6 +275,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     _label('Дата и время'),
                     _buildCalendarCard(),
 
+                    // ── Tasks from app for selected date ─────────────────────
+                    ListenableBuilder(
+                      listenable: AppStore.instance,
+                      builder: (context, _) => _buildLocalTasksForDaySection(),
+                    ),
+
                     // ── Google Calendar Events for selected date ─────────────
                     if (GoogleCalendarService.instance.isSyncEnabled.value)
                       _buildDayEventsSection(),
@@ -278,52 +288,54 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                     ListenableBuilder(
                       listenable: AppStore.instance,
                       builder: (context, _) {
-                        if (widget.habitToEdit != null) {
-                          return _buildLockedHabitBanner();
-                        }
                         return _lockedGoalId != null
                             ? _buildLockedGoalBanner()
-                            : _buildGoalDropdown();
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (widget.habitToEdit != null)
+                                    _buildEditingTaskBanner(),
+                                  _buildGoalDropdown(),
+                                ],
+                              );
                       },
                     ),
 
                     const SizedBox(height: 20),
 
-                    if (_selectedGoalId != null) ...[
-                      _label('Приоритет'),
-                      Row(
-                        children: List.generate(
-                          _priorities.length,
-                          (i) => Expanded(
-                            child: GestureDetector(
-                              onTap: () => setState(() => _priority = i),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                margin: EdgeInsets.only(
-                                    right: i < 2 ? 12 : 0),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 12),
-                                decoration: BoxDecoration(
+                    _label('Приоритет'),
+                    Row(
+                      children: List.generate(
+                        _priorities.length,
+                        (i) => Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _priority = i),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: EdgeInsets.only(
+                                  right: i < 2 ? 12 : 0),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 12),
+                              decoration: BoxDecoration(
+                                color: _priority == i
+                                    ? AppColors.primaryLight
+                                    : AppColors.bgWhite,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
                                   color: _priority == i
-                                      ? AppColors.primaryLight
-                                      : AppColors.bgWhite,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: _priority == i
-                                        ? AppColors.primary
-                                        : AppColors.borderDark,
-                                  ),
+                                      ? AppColors.primary
+                                      : AppColors.borderDark,
                                 ),
-                                child: Center(
-                                  child: Text(
-                                    _priorities[i],
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                      color: _priority == i
-                                          ? AppColors.primaryDark
-                                          : AppColors.textDark,
-                                    ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  _priorities[i],
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: _priority == i
+                                        ? AppColors.primaryDark
+                                        : AppColors.textDark,
                                   ),
                                 ),
                               ),
@@ -331,8 +343,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 20),
-                    ],
+                    ),
+                    const SizedBox(height: 20),
 
                     if (_selectedGoalId != null)
                       _buildGoalTaskRewardPreview()
@@ -425,96 +437,106 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             ],
                           ),
                           const SizedBox(height: 10),
-                          if (_selectedGoalId != null)
-                            Text(
-                              'Награда умножается на приоритет: '
-                              '${_priorities[0].toLowerCase()} ×${_priorityMultipliers[0]} · '
-                              '${_priorities[1].toLowerCase()} ×${_priorityMultipliers[1]} · '
-                              '${_priorities[2].toLowerCase()} ×${_priorityMultipliers[2]}',
-                              style: TextStyle(
-                                color: AppColors.textMuted,
-                                fontSize: 11,
-                                height: 1.25,
-                              ),
-                            )
-                          else
-                            Text(
-                              'Награда зависит от сложности (без приоритета цели).',
-                              style: TextStyle(
-                                color: AppColors.textMuted,
-                                fontSize: 11,
-                                height: 1.25,
-                              ),
+                          Text(
+                            'Награда учитывает сложность и приоритет: '
+                            '${_priorities[0].toLowerCase()} ×${_priorityMultipliers[0]} · '
+                            '${_priorities[1].toLowerCase()} ×${_priorityMultipliers[1]} · '
+                            '${_priorities[2].toLowerCase()} ×${_priorityMultipliers[2]}',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 11,
+                              height: 1.25,
                             ),
+                          ),
                         ],
                       ),
                     ),
 
                     const SizedBox(height: 20),
-                    // Repeat toggle
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.repeat_rounded,
-                                color: AppColors.primary, size: 22),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Повторять задачу',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                        _buildToggle(_repeat, (v) => setState(() => _repeat = v)),
-                      ],
-                    ),
-
-                    if (_repeat) ...[
-                      const SizedBox(height: 12),
+                    if (_selectedGoalId == null) ...[
+                      // Repeat toggle (только для задач без цели)
                       Row(
-                        children: List.generate(
-                          _repeats.length,
-                          (i) => Expanded(
-                            child: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _repeatIndex = i),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                margin: EdgeInsets.only(
-                                    right: i < 2 ? 12 : 0),
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: _repeatIndex == i
-                                      ? AppColors.primary
-                                      : AppColors.bgWhite,
-                                  borderRadius:
-                                      BorderRadius.circular(20),
-                                  border: Border.all(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.repeat_rounded,
+                                  color: AppColors.primary, size: 22),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Повторять задачу',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
+                          _buildToggle(_repeat, (v) => setState(() => _repeat = v)),
+                        ],
+                      ),
+
+                      if (_repeat) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: List.generate(
+                            _repeats.length,
+                            (i) => Expanded(
+                              child: GestureDetector(
+                                onTap: () =>
+                                    setState(() => _repeatIndex = i),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  margin: EdgeInsets.only(
+                                      right: i < (_repeats.length - 1) ? 12 : 0),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 10),
+                                  decoration: BoxDecoration(
                                     color: _repeatIndex == i
                                         ? AppColors.primary
-                                        : AppColors.borderDark,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    _repeats[i],
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12,
+                                        : AppColors.bgWhite,
+                                    borderRadius:
+                                        BorderRadius.circular(20),
+                                    border: Border.all(
                                       color: _repeatIndex == i
-                                          ? Colors.white
-                                          : AppColors.textDark,
+                                          ? AppColors.primary
+                                          : AppColors.borderDark,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      _repeats[i],
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                        color: _repeatIndex == i
+                                            ? Colors.white
+                                            : AppColors.textDark,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _repeatIndex == 0
+                              ? 'Ежедневно: задача появляется каждый день.'
+                              : 'Еженедельно: задача появляется в этот день недели.',
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ] else ...[
+                      Text(
+                        'Для задач цели повторение выключено: каждая задача — отдельный шаг к цели.',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 12,
                         ),
                       ),
                     ],
@@ -606,18 +628,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             break;
           }
         }
-        final pool = goal?.xpTaskPool ?? GoalXpRules.defaultTaskPool;
-        final completionBonus =
-            goal?.xpCompletionBonus ?? GoalXpRules.defaultCompletionBonus;
-        final base = GoalXpRules.baseSharePerTask(pool, n);
-        final previewTag = TaskTag(
-          text: _priorities[_priority],
-          type: _priority == 2
-              ? TagType.high
-              : (_priority == 0 ? TagType.repeat : TagType.medium),
-        );
-        final xp =
-            GoalXpRules.taskXp(pool: pool, taskCount: n, tag: previewTag);
+        final completionXp = goal?.xpCompletionBonus ?? 0;
+        final completionCoins = goal?.coinsCompletionBonus ?? 0;
+        final rewardParts = <String>[];
+        if (completionXp > 0) rewardParts.add('+$completionXp XP');
+        if (completionCoins > 0) rewardParts.add('+$completionCoins монет');
+        final rewardText = rewardParts.isEmpty
+            ? 'без награды'
+            : rewardParts.join(' и ');
         return Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -627,36 +645,55 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Награда за задачу в цели',
+              Text(
+                'Задача внутри цели',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
+                  color: AppColors.textDark,
                 ),
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Icon(Icons.toll_rounded,
+                  Icon(Icons.flag_rounded,
                       color: AppColors.primaryDark, size: 22),
                   const SizedBox(width: 8),
-                  Text(
-                    '+$xp XP при выполнении',
-                    style: TextStyle(
-                      color: AppColors.primaryDark,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 18,
+                  Expanded(
+                    child: Text(
+                      'Награда только за полное выполнение цели',
+                      style: TextStyle(
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
               Text(
-                'Пул цели — $pool XP на все задачи (хранится в аккаунте). '
-                'После сохранения будет $n задач(и): сначала делим поровну (~$base XP за шаг при «среднем» приоритете), '
-                'затем множитель «${_priorities[_priority].toLowerCase()}» ×${_priorityMultiplier.toStringAsFixed(2)}. '
-                'За эту задачу при выполнении: +$xp XP. '
-                'Когда закроете все задачи цели — ещё +$completionBonus XP бонусом.',
+                'Как считается награда:',
+                style: TextStyle(
+                  color: AppColors.textDark,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '• Эта задача станет шагом к цели (после сохранения: $n задач)\n'
+                '• За отдельные шаги XP/монеты не начисляются\n'
+                '• Награда придёт один раз, когда закроете все задачи',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Награда за полную цель: $rewardText.',
                 style: TextStyle(
                   color: AppColors.textMuted,
                   fontSize: 12,
@@ -670,14 +707,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 
-  Widget _buildLockedHabitBanner() {
+  Widget _buildEditingTaskBanner() {
+    final hasGoal = _selectedGoalId != null && _selectedGoalId!.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label('Тип'),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: AppColors.primaryLight,
             borderRadius: BorderRadius.circular(16),
@@ -689,16 +726,33 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             children: [
               Icon(Icons.bolt_rounded, color: AppColors.primary, size: 22),
               const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'Привычка (не привязана к цели)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hasGoal ? 'Задача будет в цели' : 'Обычная задача',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasGoal
+                          ? 'Будет учитываться в прогрессе выбранной цели'
+                          : 'Можно оставить без цели или привязать к цели ниже',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Icon(Icons.lock_outline_rounded,
+              Icon(hasGoal ? Icons.check_circle_rounded : Icons.link_rounded,
                   size: 18, color: AppColors.textMuted),
             ],
           ),
@@ -756,35 +810,66 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label('Привязать к цели'),
+        _label('Цель (необязательно)'),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: AppColors.bgWhite,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppColors.borderDark),
           ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String?>(
-              isExpanded: true,
-              value: _selectedGoalId,
-              hint: const Text('Без цели'),
-              items: [
-                const DropdownMenuItem<String?>(
-                  value: null,
-                  child: Text('Без цели'),
-                ),
-                ...goals.map(
-                  (g) => DropdownMenuItem<String?>(
-                    value: g.id,
-                    child: Text(g.title),
+          child: Row(
+            children: [
+              Icon(Icons.flag_rounded, color: AppColors.primary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    isExpanded: true,
+                    value: _selectedGoalId,
+                    hint: const Text('Без цели'),
+                    icon: Icon(Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.textMuted),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('Без цели'),
+                      ),
+                      ...goals.map(
+                        (g) => DropdownMenuItem<String?>(
+                          value: g.id,
+                          child: Text(g.title),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) => setState(() => _selectedGoalId = v),
                   ),
                 ),
-              ],
-              onChanged: (v) => setState(() => _selectedGoalId = v),
-            ),
+              ),
+            ],
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          _selectedGoalId == null
+              ? 'Без цели: задача просто в ежедневном списке, награда — по сложности.'
+              : 'С целью: задача идёт в прогресс цели, а XP считается по правилам цели и приоритету.',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 12,
+            height: 1.3,
+          ),
+        ),
+        if (goals.isEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Пока нет целей. Создайте цель, чтобы привязывать задачи.',
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1003,6 +1088,105 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 
+  // ── Tasks from Zhasau for selected date ─────────────────────────────────────
+  Widget _buildLocalTasksForDaySection() {
+    final tasks = AppStore.instance.tasks
+        .where((t) =>
+            t.scheduledAt != null &&
+            t.scheduledAt!.year == _selectedDate.year &&
+            t.scheduledAt!.month == _selectedDate.month &&
+            t.scheduledAt!.day == _selectedDate.day)
+        .toList()
+      ..sort((a, b) => a.scheduledAt!.compareTo(b.scheduledAt!));
+
+    if (tasks.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Icon(Icons.list_alt_rounded,
+                color: AppColors.primary, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Задачи на ${_formatDate(_selectedDate)}',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.bgWhite,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.borderDark),
+          ),
+          child: Column(
+            children: tasks.asMap().entries.map((entry) {
+              final i = entry.key;
+              final task = entry.value;
+              final st = task.scheduledAt!;
+              final timeStr =
+                  '${st.hour.toString().padLeft(2, '0')}:${st.minute.toString().padLeft(2, '0')}';
+
+              return Column(
+                children: [
+                  if (i > 0)
+                    Divider(height: 1, color: AppColors.borderDark),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            timeStr,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primaryDark,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            task.title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textDark,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
   Color _eventColor(String? colorId) {
     switch (colorId) {
       case '1': return const Color(0xFF7986CB); // Lavender
@@ -1208,11 +1392,34 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return;
     }
 
+    final selectedSlot = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+    final excludeTaskId = widget.taskToEdit?.id;
+    final excludeHabitId = widget.habitToEdit?.id;
+    final hasConflict = await _hasTimeConflict(
+      selectedSlot,
+      excludeTaskId: excludeTaskId,
+      excludeHabitId: excludeHabitId,
+    );
+    if (hasConflict) {
+      if (mounted) _toast(_kTimeConflictText, isError: true);
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       if (widget.habitToEdit != null) {
         try {
-          await _updateHabitTask(widget.habitToEdit!);
+          if (_selectedGoalId != null && _selectedGoalId!.trim().isNotEmpty) {
+            await _convertHabitToGoalTask(widget.habitToEdit!, _selectedGoalId!);
+          } else {
+            await _updateHabitTask(widget.habitToEdit!);
+          }
         } catch (e) {
           if (mounted) _toast('Ошибка сохранения', isError: true);
         }
@@ -1254,11 +1461,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       );
       return;
     }
-    final goalId = old.goalId;
+    final goalId = (_selectedGoalId != null && _selectedGoalId!.trim().isNotEmpty)
+        ? _selectedGoalId
+        : old.goalId;
     if (goalId == null || goalId.isEmpty) {
       if (!mounted) return;
       _toast(
-        'Редактирование доступно только для задач целей',
+        'Выберите цель для задачи',
         isError: true,
       );
       return;
@@ -1273,19 +1482,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
     final goal = matching.first;
 
-    final currentTasks = store.getTasksForGoal(goalId);
-    final n = currentTasks.isEmpty ? 1 : currentTasks.length;
-    final pool = goal.xpTaskPool;
-    final xpReward = GoalXpRules.taskXp(
-      pool: pool,
-      taskCount: n,
-      tag: TaskTag(
-        text: _priorities[_priority],
-        type: _priority == 2
-            ? TagType.high
-            : (_priority == 0 ? TagType.repeat : TagType.medium),
-      ),
-    );
+    final movedToAnotherGoal = old.goalId != null && old.goalId != goalId;
 
     final desc = _descController.text.trim();
     final scheduledAt = DateTime(
@@ -1295,11 +1492,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _selectedTime.hour,
       _selectedTime.minute,
     );
+
+    if (await _hasTimeConflict(
+      scheduledAt,
+      excludeTaskId: old.id,
+    )) {
+      if (!mounted) return;
+      _toast(_kTimeConflictText, isError: true);
+      return;
+    }
     final updated = old.copyWith(
       title: title,
       subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
       scheduledAt: scheduledAt,
-      reward: xpReward,
+      reward: 0,
       isXp: true,
       tag: TaskTag(
         text: _priorities[_priority],
@@ -1312,7 +1518,78 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final ok = await _awaitFirestoreVoid(store.updateTask(updated));
     if (!ok || !mounted) return;
 
+    if (movedToAnotherGoal && old.goalId != null && old.goalId!.isNotEmpty) {
+      await store.recalculateGoalTaskRewards(old.goalId!);
+    }
+
     _toast('Изменения сохранены');
+    _afterTaskCreatedSuccess();
+  }
+
+  Future<void> _convertHabitToGoalTask(HabitModel old, String goalId) async {
+    final hid = old.id;
+    if (hid == null || hid.isEmpty) {
+      if (!mounted) return;
+      _toast('Ошибка: нет id задачи', isError: true);
+      return;
+    }
+
+    final store = AppStore.instance;
+    final matching = store.goals.where((g) => g.id == goalId);
+    if (matching.isEmpty) {
+      if (!mounted) return;
+      _toast('Цель не найдена', isError: true);
+      return;
+    }
+    final goal = matching.first;
+
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      if (!mounted) return;
+      _toast('Введите название задачи', isError: true);
+      return;
+    }
+
+    final prioTag = TaskTag(
+      text: _priorities[_priority],
+      type: _priority == 2
+          ? TagType.high
+          : (_priority == 0 ? TagType.repeat : TagType.medium),
+    );
+
+    final desc = _descController.text.trim();
+    final scheduledAt = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+
+    final task = TaskModel(
+      id: 'task_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(99999)}',
+      title: title,
+      subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
+      goalId: goalId,
+      scheduledAt: scheduledAt,
+      reward: 0,
+      isXp: true,
+      tag: prioTag,
+    );
+
+    final created = await _awaitFirestoreVoid(store.addTask(task));
+    if (!created || !mounted) return;
+
+    try {
+      if (old.calendarEventId != null && old.calendarEventId!.isNotEmpty) {
+        await GoogleCalendarService.instance.deleteEvent(old.calendarEventId!);
+      }
+    } catch (_) {}
+
+    final deleted = await _awaitFirestoreVoid(_habitService.deleteHabit(hid));
+    if (!deleted || !mounted) return;
+
+    _toast('Задача привязана к цели');
     _afterTaskCreatedSuccess();
   }
 
@@ -1340,21 +1617,36 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
 
     final deadline = _habitDeadlineFromPicker();
+    final repeatWeekdays = _selectedRepeatWeekdays();
+    final isRecurring = _repeat;
+
+    if (!isRecurring &&
+        await _hasTimeConflict(
+          deadline,
+          excludeHabitId: hid,
+        )) {
+      if (!mounted) return;
+      _toast(_kTimeConflictText, isError: true);
+      return;
+    }
 
     final updated = old.copyWith(
       title: title,
       notes: _descController.text.trim(),
-      deadline: deadline,
+      deadline: isRecurring ? null : deadline,
       xpReward: _finalXpReward,
       coinReward: _finalCoinReward,
       isQuickTask: false,
+      isRecurring: isRecurring,
+      repeatWeekdays: repeatWeekdays,
+      clearCompletedAt: true,
+      completed: false,
+      clearLastCompletedDateKey: true,
+      clearSlotsProgress: true,
     );
 
     final ok = await _awaitFirestoreVoid(_habitService.updateHabit(updated));
     if (!ok || !mounted) return;
-
-    // Не блокируем UI ожиданием Calendar API (на эмуляторе часто зависает DNS/SSL).
-    _scheduleBackgroundHabitCalendarSync(updated);
 
     if (!mounted) return;
     _toast('Изменения сохранены');
@@ -1396,17 +1688,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
     final goal = matching.first;
 
-    final currentTasks = store.getTasksForGoal(goalId);
-    final newTotal = currentTasks.length + 1;
-    final pool = goal.xpTaskPool;
     final prioTag = TaskTag(
       text: _priorities[_priority],
       type: _priority == 2
           ? TagType.high
           : (_priority == 0 ? TagType.repeat : TagType.medium),
     );
-    final xpReward =
-        GoalXpRules.taskXp(pool: pool, taskCount: newTotal, tag: prioTag);
 
     final desc = _descController.text.trim();
     final scheduledAt = DateTime(
@@ -1416,6 +1703,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _selectedTime.hour,
       _selectedTime.minute,
     );
+
+    if (await _hasTimeConflict(scheduledAt)) {
+      if (!mounted) return;
+      _toast(_kTimeConflictText, isError: true);
+      return;
+    }
     final task = TaskModel(
       id:
           'task_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(99999)}',
@@ -1423,7 +1716,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
       goalId: goalId,
       scheduledAt: scheduledAt,
-      reward: xpReward,
+      reward: 0,
       isXp: true,
       tag: prioTag,
     );
@@ -1437,15 +1730,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _createHabitTask(String title) async {
     final deadline = _habitDeadlineFromPicker();
+    final repeatWeekdays = _selectedRepeatWeekdays();
+    final isRecurring = _repeat;
+
+    if (await _hasTimeConflict(
+      deadline,
+    )) {
+      if (!mounted) return;
+      _toast(_kTimeConflictText, isError: true);
+      return;
+    }
 
     final habit = HabitModel(
       title: title,
       completed: false,
       createdAt: DateTime.now(),
       isQuickTask: false,
+      isRecurring: isRecurring,
+      repeatWeekdays: repeatWeekdays,
       xpReward: _finalXpReward,
       coinReward: _finalCoinReward,
-      deadline: deadline,
+      deadline: isRecurring ? null : deadline,
       notes: _descController.text.trim(),
     );
 
@@ -1473,6 +1778,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           _priority = 1;
           _complexity = 2;
           _repeat = false;
+          _repeatIndex = 0;
           if (widget.initialGoalId == null &&
               widget.taskToEdit == null &&
               widget.habitToEdit == null) {
@@ -1494,6 +1800,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _selectedTime.minute,
     );
     return _clampHabitDeadlineToFuture(proposed, _selectedDate);
+  }
+
+  List<int> _selectedRepeatWeekdays() {
+    if (!_repeat) return const <int>[];
+    if (_repeatIndex == 0) return const <int>[]; // каждый день
+    return <int>[_selectedDate.weekday]; // еженедельно в этот день
   }
 
   static DateTime _clampHabitDeadlineToFuture(DateTime proposed, DateTime dayDate) {
@@ -1530,4 +1842,53 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           ),
         ),
       );
+
+  /// Проверка: есть ли в приложении другая задача/привычка с тем же временем (по минутам).
+  /// Смотрим и задачи целей (AppStore.tasks), и привычки (HabitService.getAllHabitsOnce).
+  Future<bool> _hasTimeConflict(
+    DateTime slot, {
+    String? excludeTaskId,
+    String? excludeHabitId,
+  }) async {
+    // 1) Задачи целей (TaskModel) из локального стора
+    for (final t in AppStore.instance.tasks) {
+      if (excludeTaskId != null && t.id == excludeTaskId) continue;
+      final st = t.scheduledAt;
+      if (st == null) continue;
+      if (st.year == slot.year &&
+          st.month == slot.month &&
+          st.day == slot.day &&
+          st.hour == slot.hour &&
+          st.minute == slot.minute) {
+        return true;
+      }
+    }
+
+    // 2) Привычки (HabitModel) из Firestore — однократное чтение
+    try {
+      final habits =
+          await _habitService.getAllHabitsOnce().timeout(_firestoreWait);
+      for (final h in habits) {
+        if (excludeHabitId != null && h.id == excludeHabitId) continue;
+        final d = h.deadline;
+        if (d == null) continue;
+        if (d.year == slot.year &&
+            d.month == slot.month &&
+            d.day == slot.day &&
+            d.hour == slot.hour &&
+            d.minute == slot.minute) {
+          return true;
+        }
+      }
+    } on TimeoutException {
+      // Если не удалось проверить занятость слота, безопаснее запретить сохранение.
+      debugPrint('Time conflict check: Firestore timeout');
+      return true;
+    } catch (e, st) {
+      debugPrint('Time conflict check error: $e\n$st');
+      return true;
+    }
+
+    return false;
+  }
 }

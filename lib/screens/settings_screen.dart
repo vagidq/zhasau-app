@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -580,10 +582,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       width: double.infinity,
                       child: OutlinedButton(
                         onPressed: () async {
-                          await PushNotificationBridge.beforeSignOut();
-                          await _authService.signOut();
-                          await _localAuthService.signOut();
-                          await AppStore.instance.resetSession();
+                          Future<void> safeStep(
+                            String name,
+                            Future<void> Function() step,
+                          ) async {
+                            try {
+                              await step().timeout(const Duration(seconds: 6));
+                            } catch (e) {
+                              debugPrint('Sign out step "$name" failed: $e');
+                            }
+                          }
+
+                          await safeStep(
+                            'push_before_signout',
+                            PushNotificationBridge.beforeSignOut,
+                          );
+                          await safeStep('auth_signout', _authService.signOut);
+                          await safeStep(
+                            'local_auth_signout',
+                            _localAuthService.signOut,
+                          );
+                          await safeStep(
+                            'reset_session',
+                            AppStore.instance.resetSession,
+                          );
                           if (!context.mounted) return;
                           Navigator.of(context).pushAndRemoveUntil(
                             PageRouteBuilder(

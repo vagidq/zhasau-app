@@ -36,6 +36,7 @@ class UserService {
       if (goal.calendarEventId != null) 'calendarEventId': goal.calendarEventId,
       'xpTaskPool': goal.xpTaskPool,
       'xpCompletionBonus': goal.xpCompletionBonus,
+      'coinsCompletionBonus': goal.coinsCompletionBonus,
       'completionBonusGranted': goal.completionBonusGranted,
     });
   }
@@ -54,6 +55,7 @@ class UserService {
       'calendarEventId': goal.calendarEventId,
       'xpTaskPool': goal.xpTaskPool,
       'xpCompletionBonus': goal.xpCompletionBonus,
+      'coinsCompletionBonus': goal.coinsCompletionBonus,
       'completionBonusGranted': goal.completionBonusGranted,
     });
   }
@@ -100,6 +102,8 @@ class UserService {
           xpCompletionBonus:
               (data['xpCompletionBonus'] as num?)?.toInt() ??
                   GoalXpRules.defaultCompletionBonus,
+          coinsCompletionBonus:
+              (data['coinsCompletionBonus'] as num?)?.toInt() ?? 0,
           completionBonusGranted:
               data['completionBonusGranted'] as bool? ?? false,
         );

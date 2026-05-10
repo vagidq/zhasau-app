@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppColors {
   static final ValueNotifier<bool> isDarkMode = ValueNotifier(false);
+  static const String _themePrefsKey = 'app_dark_mode_enabled';
 
   static Color primary = const Color(0xFF9333EA);
   static Color primaryLight = const Color(0xFFF3E8FF);
@@ -30,7 +32,18 @@ class AppColors {
   static Color red = const Color(0xFFEF4444);
   static Color redLight = const Color(0xFFFEE2E2);
 
+  static Future<void> loadThemePreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dark = prefs.getBool(_themePrefsKey) ?? false;
+    _applyTheme(dark);
+  }
+
   static void toggleTheme(bool dark) {
+    _applyTheme(dark);
+    _saveThemePreference(dark);
+  }
+
+  static void _applyTheme(bool dark) {
     // Сначала обновляем все цвета, потом уведомляем слушателей
     if (dark) {
       primary = const Color(0xFFA855F7);
@@ -39,8 +52,8 @@ class AppColors {
       bgMain = const Color(0xFF0F172A);
       bgWhite = const Color(0xFF1E293B);
       textDark = const Color(0xFFF8FAFC);
-      textMuted = const Color(0xFF94A3B8);
-      textLight = const Color(0xFF64748B);
+      textMuted = const Color(0xFFCBD5E1);
+      textLight = const Color(0xFF94A3B8);
       border = const Color(0xFF334155);
       borderDark = const Color(0xFF475569);
       success = const Color(0xFF34D399);
@@ -75,5 +88,10 @@ class AppColors {
     }
     // Уведомляем слушателей ПОСЛЕ того, как все цвета обновлены
     isDarkMode.value = dark;
+  }
+
+  static Future<void> _saveThemePreference(bool dark) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_themePrefsKey, dark);
   }
 }

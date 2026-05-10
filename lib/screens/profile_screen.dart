@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../achievements/achievement_catalog.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
+import '../models/user_profile.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
 import 'settings_screen.dart';
@@ -13,21 +14,49 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+(Color bg, Color icon) _achievementBadgeColors({
+  required bool unlocked,
+  required Color catalogBg,
+  required Color catalogIcon,
+}) {
+  if (!unlocked) {
+    final bg = AppColors.isDarkMode.value
+        ? AppColors.border
+        : AppColors.borderDark;
+    return (bg, AppColors.textMuted);
+  }
+  if (!AppColors.isDarkMode.value) {
+    return (catalogBg, catalogIcon);
+  }
+  // Тёмная тема: мягкий «стеклянный» круг в тон карточке, без ярких пастелей.
+  final tinted = Color.alphaBlend(
+    catalogIcon.withValues(alpha: 0.34),
+    AppColors.bgWhite,
+  );
+  return (tinted, catalogIcon);
+}
+
 class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
     AppStore.instance.addListener(_onStoreChanged);
+    AppColors.isDarkMode.addListener(_onThemeChange);
   }
 
   @override
   void dispose() {
     AppStore.instance.removeListener(_onStoreChanged);
+    AppColors.isDarkMode.removeListener(_onThemeChange);
     super.dispose();
   }
 
   void _onStoreChanged() {
     setState(() {});
+  }
+
+  void _onThemeChange() {
+    if (mounted) setState(() {});
   }
 
   Widget _resolveAvatarWidget() {
@@ -56,23 +85,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .map(
           (def) {
             final isUnlocked = unlocked.contains(def.id);
-            var color = def.color;
-            var iconColor = def.iconColor;
-            if (def.id == AchievementIds.priorityMaster && isUnlocked) {
-              color = AppColors.warningLight;
-              iconColor = AppColors.warning;
+            if (isUnlocked) {
+              final pair = _achievementBadgeColors(
+                unlocked: true,
+                catalogBg: def.color,
+                catalogIcon: def.iconColor,
+              );
+              return _Achievement(
+                icon: def.icon,
+                label: def.label,
+                description: def.description,
+                color: pair.$1,
+                iconColor: pair.$2,
+                locked: false,
+              );
             }
+            final pair = _achievementBadgeColors(
+              unlocked: false,
+              catalogBg: def.color,
+              catalogIcon: def.iconColor,
+            );
             return _Achievement(
-            icon: !isUnlocked &&
-                    def.id == AchievementIds.priorityMaster
-                ? Icons.lock_rounded
-                : def.icon,
-            label: def.label,
-            description: def.description,
-            color: color,
-            iconColor: iconColor,
-            locked: !isUnlocked,
-          );
+              icon: Icons.lock_rounded,
+              label: def.label,
+              description: def.description,
+              color: pair.$1,
+              iconColor: pair.$2,
+              locked: true,
+            );
           },
         )
         .toList();
@@ -88,10 +128,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Профиль',
+                  Text('Профиль',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
                     ),
                   ),
                   Row(
@@ -214,9 +255,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 12),
                     Text(
                       user.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -257,7 +299,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _statCard(
                       icon: Icons.local_fire_department_rounded,
                       label: 'Серия',
-                      value: '${user.streak} дней',
+                      value:
+                          '${user.streak} ${UserProfile.streakDaysWord(user.streak)}',
                       sub: 'без пропусков',
                     ),
                     const SizedBox(height: 16),
@@ -281,19 +324,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Активность за неделю',
+                          Text('Активность за неделю',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Пн–Вс текущей календарной недели (с понедельника)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              height: 1.3,
-                              color: AppColors.textMuted,
+                              color: AppColors.textDark,
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -362,12 +397,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 20),
 
                     // Achievements
-                    const Align(
+                    Align(
                       alignment: Alignment.centerLeft,
-                      child: Text('Достижения',
+                      child: Text(
+                        'Достижения',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 19,
+                          color: AppColors.textDark,
                         ),
                       ),
                     ),
@@ -423,9 +460,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
             ),
           ),
           const SizedBox(height: 4),
@@ -442,12 +480,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _achievementItem(BuildContext context, _Achievement a) {
-    return GestureDetector(
-      onTap: () => _showAchievementDialog(context, a),
-      child: Opacity(
-        opacity: a.locked ? 0.5 : 1.0,
-        child: Column(
-          children: [
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showAchievementDialog(context, a),
+        splashColor: AppColors.primary.withValues(alpha: 0.12),
+        highlightColor: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(48),
+        child: Opacity(
+          opacity: a.locked ? 0.6 : 1.0,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
             Container(
               width: 60,
               height: 60,
@@ -462,13 +508,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Text(
               a.label,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
                 height: 1.3,
+                color: AppColors.textDark,
               ),
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -604,9 +653,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     children: [
                       Text(
                         'Статистика за $dayLabel',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
                         ),
                       ),
                       const SizedBox(height: 4),

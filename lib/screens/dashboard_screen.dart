@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../models/app_store.dart';
+import '../models/user_profile.dart';
 import '../models/habit_model.dart';
 import '../models/task_model.dart' as tm;
 import '../services/habit_service.dart';
@@ -39,17 +40,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    // Listen to AppStore changes to update UI when profile changes
     AppStore.instance.addListener(_onStoreChanged);
+    AppColors.isDarkMode.addListener(_onThemeChange);
   }
 
   void _onStoreChanged() {
     if (mounted) setState(() {});
   }
 
+  void _onThemeChange() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     AppStore.instance.removeListener(_onStoreChanged);
+    AppColors.isDarkMode.removeListener(_onThemeChange);
     _quickAddController.dispose();
     _quickAddFocus.dispose();
     for (final t in _deleteTimers.values) {
@@ -181,13 +187,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               _vDivider(),
                               Row(
                                 children: [
-                                  Text(
-                                    '${user.coins}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
-                                  ),
+                        Text(
+                          '${user.coins}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            color: AppColors.textDark,
+                          ),
+                        ),
                                   const SizedBox(width: 4),
                                   Icon(Icons.toll_rounded,
                                       color: AppColors.yellow, size: 18),
@@ -196,13 +203,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               _vDivider(),
                               Row(
                                 children: [
-                                  Text(
-                                    '${user.streak} дней',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
-                                  ),
+                        Text(
+                          '${user.streak} ${UserProfile.streakDaysWord(user.streak)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            color: AppColors.textDark,
+                          ),
+                        ),
                                   const SizedBox(width: 4),
                                   const Icon(Icons.local_fire_department,
                                       color: Color(0xFFF97316), size: 18),
@@ -379,11 +387,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
+                        Text(
                           'Активные цели',
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w800,
+                            color: AppColors.textDark,
                           ),
                         ),
                         GestureDetector(
@@ -551,11 +560,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
+                                Text(
                                   'Задачи на сегодня',
                                   style: TextStyle(
                                     fontSize: 19,
                                     fontWeight: FontWeight.w800,
+                                    color: AppColors.textDark,
                                   ),
                                 ),
                                 Container(
@@ -805,12 +815,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.start,
                                                   children: [
-                                                    const Text(
+                                                    Text(
                                                       'Дальше по плану',
                                                       style: TextStyle(
                                                         fontSize: 17,
                                                         fontWeight:
                                                             FontWeight.w800,
+                                                        color:
+                                                            AppColors.textDark,
                                                       ),
                                                     ),
                                                     const SizedBox(height: 2),
@@ -1737,7 +1749,7 @@ class _NotificationBellButton extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFFEDE9FE),
+              color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(

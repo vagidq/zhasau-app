@@ -22,7 +22,7 @@ class AchievementItem {
   final Color color;
   final Color iconColor;
 
-  const AchievementItem({
+  AchievementItem({
     required this.id,
     required this.icon,
     required this.label,
@@ -32,7 +32,8 @@ class AchievementItem {
   });
 }
 
-final List<AchievementItem> kAchievementCatalog = [
+/// Каталог пересобирается при обращении — цвета [AppColors] актуальны для светлой/тёмной темы.
+List<AchievementItem> get kAchievementCatalog => [
   AchievementItem(
     id: AchievementIds.earlyBird,
     icon: Icons.wb_sunny_rounded,
@@ -46,7 +47,8 @@ final List<AchievementItem> kAchievementCatalog = [
     id: AchievementIds.weekStreak,
     icon: Icons.directions_run_rounded,
     label: 'Марафонец',
-    description: 'Серия 7 дней подряд с отметками о выполнении.',
+    description:
+        'Серия из 7 календарных дней подряд (счётчик «Серия»). График ниже — только текущая неделя Пн–Вс.',
     color: AppColors.primaryLight,
     iconColor: AppColors.primary,
   ),
@@ -60,11 +62,11 @@ final List<AchievementItem> kAchievementCatalog = [
   ),
   AchievementItem(
     id: AchievementIds.priorityMaster,
-    icon: Icons.military_tech_rounded,
+    icon: Icons.emoji_events_rounded,
     label: 'Мастер',
     description: 'Завершить 100 задач целей с тегом «Высокий» приоритет.',
-    color: AppColors.border,
-    iconColor: AppColors.textLight,
+    color: AppColors.warningLight,
+    iconColor: AppColors.warning,
   ),
 ];
 

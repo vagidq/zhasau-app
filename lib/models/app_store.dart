@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../achievements/achievement_catalog.dart';
 import '../models/goal_model.dart';
-import '../models/goal_xp_rules.dart';
 import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
@@ -217,30 +216,18 @@ class AppStore extends ChangeNotifier {
     return goalTasks.where((t) => !t.completed).length;
   }
 
-  /// Текущий XP за задачу цели: пул из [GoalModel.xpTaskPool] / число задач × приоритет.
+  /// За отдельную задачу цели награда не выдаётся (награда только за полное выполнение цели).
   int xpRewardForGoalTask(TaskModel task) {
     final gid = task.goalId;
     if (gid == null || gid.isEmpty) return task.reward.toInt();
-    final goalIdx = _goals.indexWhere((g) => g.id == gid);
-    if (goalIdx == -1) return task.reward.toInt();
-    final pool = _goals[goalIdx].xpTaskPool;
-    final n = getTasksForGoal(gid).length;
-    if (n == 0) return task.reward.toInt();
-    return GoalXpRules.taskXp(pool: pool, taskCount: n, tag: task.tag);
+    return 0;
   }
 
   Future<void> recalculateGoalTaskRewards(String goalId) async {
-    final goalIdx = _goals.indexWhere((g) => g.id == goalId);
-    if (goalIdx == -1) return;
-    final pool = _goals[goalIdx].xpTaskPool;
     final tasks = getTasksForGoal(goalId);
-    final n = tasks.length;
-    if (n == 0) return;
     for (final t in tasks) {
-      if (t.completed) continue;
-      final xp = GoalXpRules.taskXp(pool: pool, taskCount: n, tag: t.tag);
-      if (t.reward == xp) continue;
-      await updateTask(t.copyWith(reward: xp));
+      if (t.reward == 0) continue;
+      await updateTask(t.copyWith(reward: 0));
     }
   }
 
@@ -249,10 +236,13 @@ class AppStore extends ChangeNotifier {
     if (gIdx == -1) return;
     final meta = _goals[gIdx];
     if (!meta.completionBonusGranted) return;
-    final b = meta.xpCompletionBonus;
-    if (b <= 0) return;
-    _userProfile.xp = (_userProfile.xp - b);
+    final bXp = meta.xpCompletionBonus;
+    final bCoins = meta.coinsCompletionBonus;
+    if (bXp <= 0 && bCoins <= 0) return;
+    _userProfile.xp = (_userProfile.xp - bXp);
+    _userProfile.coins = (_userProfile.coins - bCoins);
     if (_userProfile.xp < 0) _userProfile.xp = 0;
+    if (_userProfile.coins < 0) _userProfile.coins = 0;
     _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
     final cleared = meta.copyWith(completionBonusGranted: false);
     _goals[gIdx] = cleared;
@@ -278,12 +268,14 @@ class AppStore extends ChangeNotifier {
     final gIdx = _goals.indexWhere((g) => g.id == goalId);
     if (gIdx == -1) return;
     final meta = _goals[gIdx];
-    if (meta.completionBonusGranted || meta.xpCompletionBonus <= 0) return;
-
-    final bonus = meta.xpCompletionBonus;
+    if (meta.completionBonusGranted) return;
+    final bonusXp = meta.xpCompletionBonus;
+    final bonusCoins = meta.coinsCompletionBonus;
+    if (bonusXp <= 0 && bonusCoins <= 0) return;
     final title = meta.title;
-    _userProfile.addXp(bonus);
-    _userProfile.incrementWeeklyActivity(xp: bonus, coins: 0);
+    if (bonusXp > 0) _userProfile.addXp(bonusXp);
+    if (bonusCoins > 0) _userProfile.addCoins(bonusCoins);
+    _userProfile.incrementWeeklyActivity(xp: bonusXp, coins: bonusCoins);
     _bumpCompletionStatsForAchievements(task: null, at: DateTime.now());
     final newAchievements = _mergeNewAchievements();
 
@@ -297,7 +289,7 @@ class AppStore extends ChangeNotifier {
       await _userService.addInAppNotification(
         type: InAppNotificationTypes.goalBonus,
         title: 'Цель достигнута!',
-        body: '«$title»: бонус +$bonus XP за выполнение всех задач.',
+        body: '«$title»: бонус +$bonusXp XP и +$bonusCoins монет за выполнение всех задач.',
       );
     } catch (e, st) {
       debugPrint('grant goal bonus: $e\n$st');
@@ -405,20 +397,17 @@ class AppStore extends ChangeNotifier {
       int gainedXp = 0;
       int gainedCoins = 0;
 
-      if (updatedTask.goalId != null &&
-          updatedTask.goalId!.isNotEmpty &&
-          updatedTask.isXp) {
-        final computed = xpRewardForGoalTask(updatedTask);
-        if (computed != updatedTask.reward.toInt()) {
-          taskForStore = updatedTask.copyWith(reward: computed);
-        }
+      final isGoalTask =
+          updatedTask.goalId != null && updatedTask.goalId!.isNotEmpty;
+      if (isGoalTask && updatedTask.reward != 0) {
+        taskForStore = updatedTask.copyWith(reward: 0);
       }
 
-      if (!taskForStore.isXp && taskForStore.reward > 0) {
+      if (!isGoalTask && !taskForStore.isXp && taskForStore.reward > 0) {
         gainedCoins += taskForStore.reward.toInt();
         _userProfile.addCoins(taskForStore.reward.toInt());
       }
-      if (taskForStore.isXp && taskForStore.reward > 0) {
+      if (!isGoalTask && taskForStore.isXp && taskForStore.reward > 0) {
         gainedXp += taskForStore.reward.toInt();
         _userProfile.addXp(taskForStore.reward.toInt());
       }
@@ -443,11 +432,12 @@ class AppStore extends ChangeNotifier {
       if (oldTask.goalId != null && oldTask.goalId!.isNotEmpty) {
         await _revokeGoalCompletionBonusIfGoalHadBonus(oldTask.goalId!);
       }
-      if (!oldTask.isXp && oldTask.reward > 0) {
+      final isGoalTask = oldTask.goalId != null && oldTask.goalId!.isNotEmpty;
+      if (!isGoalTask && !oldTask.isXp && oldTask.reward > 0) {
         _userProfile.coins = (_userProfile.coins - oldTask.reward).toInt();
         if (_userProfile.coins < 0) _userProfile.coins = 0;
       }
-      if (oldTask.isXp && oldTask.reward > 0) {
+      if (!isGoalTask && oldTask.isXp && oldTask.reward > 0) {
         _userProfile.xp = (_userProfile.xp - oldTask.reward).toInt();
         if (_userProfile.xp < 0) _userProfile.xp = 0;
       }
@@ -457,8 +447,8 @@ class AppStore extends ChangeNotifier {
       }
       _userProfile.level = _userProfile.calculateLevel(_userProfile.xp);
       if (_userProfile.completedTasks > 0) _userProfile.completedTasks -= 1;
-      final xpRev = oldTask.isXp ? oldTask.reward.toInt() : 0;
-      final coinRev = oldTask.isXp ? 0 : oldTask.reward.toInt();
+      final xpRev = (!isGoalTask && oldTask.isXp) ? oldTask.reward.toInt() : 0;
+      final coinRev = (!isGoalTask && !oldTask.isXp) ? oldTask.reward.toInt() : 0;
       if (xpRev > 0 || coinRev > 0) {
         _userProfile.decrementWeeklyActivity(xp: xpRev, coins: coinRev);
       }

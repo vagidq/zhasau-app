@@ -133,6 +133,7 @@ class MainShellState extends State<MainShell> {
       const ProfileScreen(),
     ];
     return Scaffold(
+      backgroundColor: AppColors.bgMain,
       body: IndexedStack(
         index: _currentIndex,
         children: pages,

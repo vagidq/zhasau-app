@@ -22,6 +22,22 @@ class _ShopScreenState extends State<ShopScreen> {
   final ShopService _shopService = ShopService();
   bool _purchaseBusy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    AppColors.isDarkMode.addListener(_onTheme);
+  }
+
+  @override
+  void dispose() {
+    AppColors.isDarkMode.removeListener(_onTheme);
+    super.dispose();
+  }
+
+  void _onTheme() {
+    if (mounted) setState(() {});
+  }
+
   Set<String> _hiddenSet(AppStore store) =>
       store.userProfile.shopHiddenBuiltinIds.toSet();
 
@@ -165,16 +181,17 @@ class _ShopScreenState extends State<ShopScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
                   child: Row(
                     children: [
-                      const Text(
+                      Text(
                         'История покупок',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
                         ),
                       ),
                       const Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.close_rounded),
+                        icon: Icon(Icons.close_rounded, color: AppColors.textDark),
                         onPressed: () => Navigator.pop(ctx),
                       ),
                     ],
@@ -218,12 +235,14 @@ class _ShopScreenState extends State<ShopScreen> {
                               ),
                               title: Text(
                                 p.title,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontWeight: FontWeight.w700,
+                                  color: AppColors.textDark,
                                 ),
                               ),
                               subtitle: Text(
                                 '${_fmtPurchase(p.purchasedAt)} · ${p.price} мон.',
+                                style: TextStyle(color: AppColors.textMuted),
                               ),
                             ),
                           );
@@ -243,7 +262,7 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bgWhite,
+      backgroundColor: AppColors.bgMain,
       body: SafeArea(
         child: Column(
           children: [
@@ -252,16 +271,18 @@ class _ShopScreenState extends State<ShopScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 22),
+                    icon: Icon(Icons.arrow_back_ios_new_rounded,
+                        size: 22, color: AppColors.textDark),
                     onPressed: () => MainShell.of(context).setIndex(0),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Center(
                       child: Text(
                         'Магазин наград',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
+                          color: AppColors.textDark,
                         ),
                       ),
                     ),
@@ -368,11 +389,12 @@ class _ShopScreenState extends State<ShopScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
+                                Text(
                                   'Доступные награды',
                                   style: TextStyle(
                                     fontSize: 19,
                                     fontWeight: FontWeight.w800,
+                                    color: AppColors.textDark,
                                   ),
                                 ),
                                 Material(
@@ -505,8 +527,11 @@ class _ShopItemCard extends StatelessWidget {
         color: AppColors.bgWhite,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(color: Color(0x05000000), blurRadius: 10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: AppColors.isDarkMode.value ? 0.2 : 0.03),
+            blurRadius: 10,
+          ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -627,9 +652,10 @@ class _ShopItemCard extends StatelessWidget {
               children: [
                 Text(
                   item.title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 14,
+                    color: AppColors.textDark,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

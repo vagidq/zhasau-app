@@ -67,6 +67,15 @@ class UserProfile {
     return '${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}';
   }
 
+  /// Склонение для серии: «1 день», «2 дня», «5 дней».
+  static String streakDaysWord(int n) {
+    final a = n % 10;
+    final b = n % 100;
+    if (a == 1 && b != 11) return 'день';
+    if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return 'дня';
+    return 'дней';
+  }
+
   /// Если наступила новая календарная неделя (или первый запуск) — обнуляет столбцы и обновляет ключ.
   /// Возвращает `true`, если данные изменились и их стоит записать в Firestore.
   bool ensureWeeklyBucketsForCurrentWeek() {
@@ -103,17 +112,19 @@ class UserProfile {
 
   // Update streak when task is completed
   void updateStreak() {
-    final today = DateTime.now();
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+
     final isToday = lastTaskCompletedDate != null &&
-        lastTaskCompletedDate!.year == today.year &&
-        lastTaskCompletedDate!.month == today.month &&
-        lastTaskCompletedDate!.day == today.day;
+        lastTaskCompletedDate!.year == todayDate.year &&
+        lastTaskCompletedDate!.month == todayDate.month &&
+        lastTaskCompletedDate!.day == todayDate.day;
 
     if (!isToday) {
-      final isYesterday = lastTaskCompletedDate != null &&
-          lastTaskCompletedDate!.year == today.year &&
-          lastTaskCompletedDate!.month == today.month &&
-          lastTaskCompletedDate!.day == today.day - 1;
+      final last = lastTaskCompletedDate;
+      final isYesterday = last != null &&
+          DateTime(last.year, last.month, last.day) ==
+              todayDate.subtract(const Duration(days: 1));
 
       if (isYesterday) {
         streak += 1;
@@ -122,7 +133,7 @@ class UserProfile {
       }
     }
 
-    lastTaskCompletedDate = today;
+    lastTaskCompletedDate = now;
   }
 
   void incrementCompletedTasks() {
