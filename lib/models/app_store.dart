@@ -233,7 +233,13 @@ class AppStore extends ChangeNotifier {
 
   int goalProgressPercent(String goalId) {
     final goalTasks = getTasksForGoal(goalId);
-    if (goalTasks.isEmpty) return 0;
+    if (goalTasks.isEmpty) {
+      final gIdx = _goals.indexWhere((g) => g.id == goalId);
+      if (gIdx != -1 && _goals[gIdx].completionBonusGranted) {
+        return 100;
+      }
+      return 0;
+    }
     final completedTasks = goalTasks.where((t) => t.completed).length;
     return ((completedTasks / goalTasks.length) * 100).round();
   }
@@ -305,7 +311,6 @@ class AppStore extends ChangeNotifier {
     if (bonusXp > 0) _userProfile.addXp(bonusXp);
     if (bonusCoins > 0) _userProfile.addCoins(bonusCoins);
     _userProfile.incrementWeeklyActivity(xp: bonusXp, coins: bonusCoins);
-    _bumpCompletionStatsForAchievements(task: null, at: DateTime.now());
     final newAchievements = _mergeNewAchievements();
 
     final marked = meta.copyWith(completionBonusGranted: true);
@@ -451,7 +456,10 @@ class AppStore extends ChangeNotifier {
       final newAchievements = _mergeNewAchievements();
       notifyListeners();
       unawaited(_persistAndAchievementNotifications(newAchievements));
-      taskForStore = taskForStore.copyWith(completedAt: completionTime);
+      taskForStore = taskForStore.copyWith(
+        completedAt: completionTime,
+        dismissedFromHome: false,
+      );
     } else if (wasCompleted && !isNowCompleted) {
       if (oldTask.goalId != null && oldTask.goalId!.isNotEmpty) {
         await _revokeGoalCompletionBonusIfGoalHadBonus(oldTask.goalId!);
@@ -484,7 +492,10 @@ class AppStore extends ChangeNotifier {
       }
       notifyListeners();
       _persistUserProfile();
-      taskForStore = updatedTask.copyWith(clearCompletedAt: true);
+      taskForStore = updatedTask.copyWith(
+        clearCompletedAt: true,
+        dismissedFromHome: false,
+      );
     }
 
     _tasks[index] = taskForStore;
@@ -607,9 +618,19 @@ class AppStore extends ChangeNotifier {
 
     final task = _tasks[taskIndex];
     final gid = task.goalId;
+    if (gid != null && gid.isNotEmpty && task.completed) {
+      return;
+    }
 
+    // Бонус за цель отзываем только если после удаления ещё есть невыполненные задачи.
     if (gid != null && gid.isNotEmpty) {
-      await _revokeGoalCompletionBonusIfGoalHadBonus(gid);
+      final remaining =
+          getTasksForGoal(gid).where((t) => t.id != taskId).toList();
+      final shouldRevokeCompletionBonus = remaining.isNotEmpty &&
+          !remaining.every((t) => t.completed);
+      if (shouldRevokeCompletionBonus) {
+        await _revokeGoalCompletionBonusIfGoalHadBonus(gid);
+      }
     }
 
     await _deleteCalendarEventIfAny(task.calendarEventId);
@@ -624,6 +645,29 @@ class AppStore extends ChangeNotifier {
       }
     } catch (e) {
       _tasks.insert(taskIndex, task);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Убрать выполненную задачу цели с главного экрана (документ в Firestore остаётся).
+  Future<void> dismissGoalTaskFromHome(String taskId) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+    final task = _tasks[index];
+    final gid = task.goalId;
+    if (gid == null || gid.isEmpty || !task.completed || task.dismissedFromHome) {
+      return;
+    }
+
+    final updated = task.copyWith(dismissedFromHome: true);
+    _tasks[index] = updated;
+    notifyListeners();
+
+    try {
+      await _userService.updateTask(updated);
+    } catch (e) {
+      _tasks[index] = task;
       notifyListeners();
       rethrow;
     }

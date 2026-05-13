@@ -31,6 +31,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final Map<String, Timer> _deleteTimers = {};
   final Set<String> _dismissed = {};
   /// Сразу убирает карточку после свайпа, пока [AppStore.deleteTask] не завершился (иначе Dismissible падает).
+  /// Для выполненных задач цели на главной используется [AppStore.dismissGoalTaskFromHome] — локальный список обновляется сразу.
   final Set<String> _dismissedGoalTaskIds = {};
 
   final _quickAddController = TextEditingController();
@@ -538,6 +539,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 t.goalId != null &&
                                 t.goalId!.isNotEmpty &&
                                 t.completed &&
+                                !t.dismissedFromHome &&
                                 !_dismissedGoalTaskIds.contains(t.id) &&
                                 (t.scheduledAt == null ||
                                     sameCalendarDay(t.scheduledAt!)))
@@ -1179,36 +1181,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                       Alignment.centerRight,
                                                   padding:
                                                       const EdgeInsets.only(
-                                                          right: 20),
+                                                          right: 18),
                                                   decoration: BoxDecoration(
-                                                    color: AppColors.red,
+                                                    color: AppColors.blueLight,
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                             16),
+                                                    border: Border.all(
+                                                      color: AppColors.blue
+                                                          .withValues(
+                                                              alpha: 0.28),
+                                                    ),
                                                   ),
-                                                  child: const Icon(
+                                                  child: Icon(
                                                     Icons
-                                                        .delete_outline_rounded,
-                                                    color: Colors.white,
-                                                    size: 24,
+                                                        .visibility_off_rounded,
+                                                    color: AppColors.blue,
+                                                    size: 26,
                                                   ),
                                                 ),
                                                 onDismissed: (_) {
                                                   final shell =
                                                       MainShell.maybeOf(
                                                           context);
-                                                  setState(() =>
-                                                      _dismissedGoalTaskIds
-                                                          .add(gt.id));
                                                   AppStore.instance
-                                                      .deleteTask(gt.id)
+                                                      .dismissGoalTaskFromHome(
+                                                          gt.id)
                                                       .catchError((_) {
                                                     if (!mounted) return;
-                                                    setState(() =>
-                                                        _dismissedGoalTaskIds
-                                                            .remove(gt.id));
                                                     shell?.showToast(
-                                                      'Не удалось удалить задачу',
+                                                      'Не удалось скрыть задачу с главной',
                                                       isError: true,
                                                     );
                                                   });

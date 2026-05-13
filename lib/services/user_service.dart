@@ -141,6 +141,7 @@ class UserService {
       if (task.calendarEventId != null) 'calendarEventId': task.calendarEventId,
       if (task.completedAt != null)
         'completedAt': Timestamp.fromDate(task.completedAt!),
+      'dismissedFromHome': task.dismissedFromHome,
     });
   }
 
@@ -165,6 +166,7 @@ class UserService {
     } else {
       patch['completedAt'] = FieldValue.delete();
     }
+    patch['dismissedFromHome'] = task.dismissedFromHome;
     await _tasksCollection.doc(task.id).update(patch);
   }
 
@@ -224,6 +226,7 @@ class UserService {
           tag: tag,
           completed: data['completed'] ?? false,
           completedAt: completedAt,
+          dismissedFromHome: data['dismissedFromHome'] as bool? ?? false,
         );
       }).toList();
     });

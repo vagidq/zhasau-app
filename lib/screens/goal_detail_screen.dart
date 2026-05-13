@@ -60,7 +60,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     final progress = store.goalProgressPercent(widget.goalId);
 
     final rewardExplained = goalTasks.isEmpty
-        ? 'Добавьте задачи и выполните цель полностью, чтобы получить награду.'
+        ? (goal.completionBonusGranted
+            ? 'Все задачи цели выполнены, награда уже была начислена. Список задач можно очистить — это не отменяет цель.'
+            : 'Добавьте задачи и выполните цель полностью, чтобы получить награду.')
         : 'Когда все задачи будут выполнены, вы получите: '
             '+${goal.xpCompletionBonus} XP и +${goal.coinsCompletionBonus} монет.';
 
@@ -283,62 +285,66 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                         ...goalTasks.map(
                           (t) => Padding(
                             padding: const EdgeInsets.only(bottom: 12),
-                            child: Dismissible(
-                              key: Key(t.id),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 24),
-                                decoration: BoxDecoration(
-                                  color: AppColors.red,
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: const Icon(
-                                  Icons.delete_outline_rounded,
-                                  color: Colors.white,
-                                  size: 26,
-                                ),
-                              ),
-                              confirmDismiss: (_) async {
-                                return await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(20)),
-                                    title: const Text('Удалить задачу?'),
-                                    content: Text(
-                                        'Задача «${t.title}» будет удалена.'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(ctx).pop(false),
-                                        child: Text('Отмена',
-                                            style: TextStyle(
-                                                color: AppColors.textMuted)),
+                            child: t.completed
+                                ? TaskItemWidget(
+                                    task: t,
+                                    onToggle: () => _toggleTask(t),
+                                    onContentTap: null,
+                                  )
+                                : Dismissible(
+                                    key: Key(t.id),
+                                    direction: DismissDirection.endToStart,
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.only(right: 24),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.red,
+                                        borderRadius: BorderRadius.circular(16),
                                       ),
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(ctx).pop(true),
-                                        child: Text('Удалить',
-                                            style: TextStyle(
-                                                color: AppColors.red,
-                                                fontWeight: FontWeight.w700)),
+                                      child: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Colors.white,
+                                        size: 26,
                                       ),
-                                    ],
-                                  ),
-                                ) ??
-                                    false;
-                              },
-                              onDismissed: (_) {
-                                AppStore.instance.deleteTask(t.id);
-                              },
-                              child: TaskItemWidget(
-                                task: t,
-                                onToggle: () => _toggleTask(t),
-                                onContentTap: t.completed
-                                    ? null
-                                    : () {
+                                    ),
+                                    confirmDismiss: (_) async {
+                                      return await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(20)),
+                                              title: const Text('Удалить задачу?'),
+                                              content: Text(
+                                                  'Задача «${t.title}» будет удалена.'),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.of(ctx).pop(false),
+                                                  child: Text('Отмена',
+                                                      style: TextStyle(
+                                                          color: AppColors.textMuted)),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.of(ctx).pop(true),
+                                                  child: Text('Удалить',
+                                                      style: TextStyle(
+                                                          color: AppColors.red,
+                                                          fontWeight: FontWeight.w700)),
+                                                ),
+                                              ],
+                                            ),
+                                          ) ??
+                                          false;
+                                    },
+                                    onDismissed: (_) {
+                                      AppStore.instance.deleteTask(t.id);
+                                    },
+                                    child: TaskItemWidget(
+                                      task: t,
+                                      onToggle: () => _toggleTask(t),
+                                      onContentTap: () {
                                         Navigator.of(context).push<void>(
                                           MaterialPageRoute<void>(
                                             builder: (_) => CreateTaskScreen(
@@ -348,8 +354,8 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                                           ),
                                         );
                                       },
-                              ),
-                            ),
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 80),

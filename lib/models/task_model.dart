@@ -23,6 +23,9 @@ class TaskModel {
   /// Локальное время отметки «выполнено» (для симметричного отката [UserProfile.completionsBeforeNine]).
   final DateTime? completedAt;
 
+  /// Выполненная задача цели скрыта с главного экрана свайпом; в цели по-прежнему видна.
+  final bool dismissedFromHome;
+
   TaskModel({
     required this.id,
     required this.title,
@@ -35,6 +38,7 @@ class TaskModel {
     this.tag,
     this.completed = false,
     this.completedAt,
+    this.dismissedFromHome = false,
   });
 
   TaskModel copyWith({
@@ -50,6 +54,7 @@ class TaskModel {
     bool? completed,
     DateTime? completedAt,
     bool clearCompletedAt = false,
+    bool? dismissedFromHome,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -64,6 +69,7 @@ class TaskModel {
       completed: completed ?? this.completed,
       completedAt:
           clearCompletedAt ? null : (completedAt ?? this.completedAt),
+      dismissedFromHome: dismissedFromHome ?? this.dismissedFromHome,
     );
   }
 }
