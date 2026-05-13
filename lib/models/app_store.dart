@@ -228,7 +228,21 @@ class AppStore extends ChangeNotifier {
   }
 
   List<TaskModel> getTasksForGoal(String goalId) {
-    return _tasks.where((t) => t.goalId == goalId).toList();
+    final list = _tasks.where((t) => t.goalId == goalId).toList();
+    int compareTasks(TaskModel a, TaskModel b) {
+      final as = a.scheduledAt;
+      final bs = b.scheduledAt;
+      if (as == null && bs == null) {
+        return a.id.compareTo(b.id);
+      }
+      if (as == null) return 1;
+      if (bs == null) return -1;
+      final byTime = as.compareTo(bs);
+      if (byTime != 0) return byTime;
+      return a.id.compareTo(b.id);
+    }
+    list.sort(compareTasks);
+    return list;
   }
 
   int goalProgressPercent(String goalId) {
