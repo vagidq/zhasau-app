@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/habit_model.dart';
+import '../utils/firestore_ids.dart';
+import 'current_user_doc.dart';
 
 /// Привычки и быстрые задачи хранятся под `users/{uid}/habits`, чтобы не смешивать аккаунты.
 /// Раньше использовалась корневая коллекция `habits` — все пользователи видели одни данные.
@@ -11,7 +13,8 @@ class HabitService {
   CollectionReference<Map<String, dynamic>>? _habitsRefOrNull() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
-    return _firestore.collection('users').doc(uid).collection('habits');
+    final docId = CurrentUserDoc.cachedDocId() ?? uid;
+    return _firestore.collection('users').doc(docId).collection('habits');
   }
 
   CollectionReference<Map<String, dynamic>> _habitsRefRequire() {
@@ -23,11 +26,15 @@ class HabitService {
   }
 
   /// Returns [habit] with [HabitModel.id] set to the new Firestore document id.
+  ///
+  /// ID документа — человекочитаемый: `habit-<slug-заголовка>-<rnd>`.
   Future<HabitModel> addHabit(HabitModel habit) async {
     if (habit.title.trim().isEmpty) {
       throw ArgumentError('Введите название задачи');
     }
-    final doc = await _habitsRefRequire().add(habit.toMap());
+    final id = makeReadableId('habit', habit.title);
+    final doc = _habitsRefRequire().doc(id);
+    await doc.set(habit.toMap());
     return habit.copyWith(id: doc.id);
   }
 

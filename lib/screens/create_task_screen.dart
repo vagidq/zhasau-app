@@ -10,6 +10,7 @@ import '../models/habit_model.dart';
 import '../models/app_store.dart';
 import '../models/goal_model.dart';
 import '../models/task_model.dart';
+import '../utils/firestore_ids.dart';
 import 'main_shell.dart';
 
 class CreateTaskScreen extends StatefulWidget {
@@ -1567,7 +1568,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
 
     final task = TaskModel(
-      id: 'task_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(99999)}',
+      id: makeReadableId('task', title),
       title: title,
       subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
       goalId: goalId,
@@ -1582,7 +1583,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     try {
       if (old.calendarEventId != null && old.calendarEventId!.isNotEmpty) {
-        await GoogleCalendarService.instance.deleteEvent(old.calendarEventId!);
+        await GoogleCalendarService.instance
+            .deleteStoredCalendarEventIds(old.calendarEventId);
       }
     } catch (_) {}
 
@@ -1648,30 +1650,48 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final ok = await _awaitFirestoreVoid(_habitService.updateHabit(updated));
     if (!ok || !mounted) return;
 
+    // Обновляем событие в Google Calendar только ПОСЛЕ успешного сохранения.
+    // Если для задачи был календарный eventId — он обновится; иначе создастся новое.
+    _scheduleBackgroundHabitCalendarSync(updated);
+
     if (!mounted) return;
     _toast('Изменения сохранены');
     _afterTaskCreatedSuccess();
   }
 
   /// Синхронизация с календарём в фоне + таймаут; учитывает «Добавить в Google Calendar».
+  /// Ошибки только пишутся в лог: задача уже сохранена, и важно не пугать пользователя
+  /// тостами, перекрывающими «Задача успешно создана».
   void _scheduleBackgroundHabitCalendarSync(HabitModel habitAfterFirestore) {
-    if (!_syncToCalendar ||
-        !GoogleCalendarService.instance.isSyncEnabled.value) {
+    final gcal = GoogleCalendarService.instance;
+    if (!_syncToCalendar) {
+      debugPrint('Calendar sync skipped: пользователь снял галочку');
+      return;
+    }
+    if (!gcal.isSyncEnabled.value) {
+      debugPrint('Calendar sync skipped: Google Calendar не подключён');
       return;
     }
     final snapshot = habitAfterFirestore;
     Future.microtask(() async {
       try {
-        final eventId = await GoogleCalendarService.instance
+        debugPrint('Calendar sync: → ${snapshot.title} '
+            '(eventId=${snapshot.calendarEventId})');
+        final eventId = await gcal
             .syncHabitToCalendar(snapshot)
             .timeout(const Duration(seconds: 25));
-        if (eventId != null &&
-            eventId.isNotEmpty &&
-            eventId != snapshot.calendarEventId) {
+        if (eventId == null || eventId.isEmpty) {
+          debugPrint('Calendar sync: пустой eventId (нет авторизации или сети)');
+          return;
+        }
+        if (eventId != snapshot.calendarEventId) {
           await _habitService.updateHabit(
             snapshot.copyWith(calendarEventId: eventId),
           );
         }
+        debugPrint('Calendar sync: ok ($eventId)');
+      } on TimeoutException {
+        debugPrint('Calendar sync: timeout 25s');
       } catch (e, st) {
         debugPrint('Habit calendar sync: $e\n$st');
       }
@@ -1710,8 +1730,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return;
     }
     final task = TaskModel(
-      id:
-          'task_${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(99999)}',
+      id: makeReadableId('task', title),
       title: title,
       subtitle: desc.isEmpty ? 'Цель: ${goal.title}' : desc,
       goalId: goalId,
@@ -1881,12 +1900,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
       }
     } on TimeoutException {
-      // Если не удалось проверить занятость слота, безопаснее запретить сохранение.
-      debugPrint('Time conflict check: Firestore timeout');
-      return true;
+      debugPrint('Time conflict check: Firestore timeout — пропускаем проверку');
     } catch (e, st) {
       debugPrint('Time conflict check error: $e\n$st');
-      return true;
     }
 
     return false;

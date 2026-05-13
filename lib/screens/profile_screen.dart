@@ -410,9 +410,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 16),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: achievements
-                          .map((a) => _achievementItem(context, a))
+                          .map(
+                            (a) => Expanded(
+                              child: Center(
+                                child: _achievementItem(context, a),
+                              ),
+                            ),
+                          )
                           .toList(),
                     ),
                     const SizedBox(height: 40),
@@ -493,6 +499,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
             Container(
               width: 60,

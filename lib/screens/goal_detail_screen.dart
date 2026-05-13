@@ -4,6 +4,7 @@ import '../models/app_store.dart';
 import '../models/task_model.dart';
 import '../models/habit_model.dart';
 import '../services/habit_service.dart';
+import '../utils/firestore_ids.dart';
 import '../widgets/task_item_widget.dart';
 import 'create_task_screen.dart';
 
@@ -35,7 +36,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     setState(() {});
   }
 
-  void _showSnack(String message) {
+  void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -43,7 +44,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         content: Text(message),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.primary,
+        backgroundColor: isError ? AppColors.red : AppColors.primary,
       ));
   }
 
@@ -334,7 +335,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                               },
                               child: TaskItemWidget(
                                 task: t,
-                                onToggle: () => _toggleTask(t, goalTasks),
+                                onToggle: () => _toggleTask(t),
                                 onContentTap: t.completed
                                     ? null
                                     : () {
@@ -777,7 +778,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     );
     final when = habit.deadline ?? DateTime.now().add(const Duration(hours: 1));
     final task = TaskModel(
-      id: 'task_${DateTime.now().microsecondsSinceEpoch}_${priority}_${habit.id ?? 'h'}',
+      id: makeReadableId('task', habit.title),
       title: habit.title,
       subtitle: habit.notes.trim().isEmpty ? 'Цель: ${goal.title}' : habit.notes.trim(),
       goalId: widget.goalId,
@@ -793,7 +794,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     _showSnack('Задача привязана к цели');
   }
 
-  void _toggleTask(TaskModel task, List<TaskModel> goalTasks) {
+  Future<void> _toggleTask(TaskModel task) async {
     final store = AppStore.instance;
     final willComplete = !task.completed;
     final xpAward = store.xpRewardForGoalTask(task);
@@ -805,10 +806,38 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       isXp: true,
     );
 
-    store.updateTask(updatedTask);
+    try {
+      await store.updateTask(updatedTask);
+    } catch (_) {
+      if (mounted) {
+        _showSnack('Не удалось сохранить', isError: true);
+      }
+      return;
+    }
+    if (!mounted) return;
 
     if (willComplete) {
-      _showSnack('+$xpAward XP за задачу!');
+      var bonusGranted = false;
+      var bonusXp = 0;
+      var bonusCoins = 0;
+      for (final g in store.goals) {
+        if (g.id == widget.goalId) {
+          bonusGranted = g.completionBonusGranted;
+          bonusXp = g.xpCompletionBonus;
+          bonusCoins = g.coinsCompletionBonus;
+          break;
+        }
+      }
+      final allDone = store
+          .getTasksForGoal(widget.goalId)
+          .every((t) => t.completed);
+      if (allDone && bonusGranted && (bonusXp > 0 || bonusCoins > 0)) {
+        _showSnack('Цель выполнена! +$bonusXp XP · +$bonusCoins монет');
+      } else {
+        _showSnack('Шаг цели отмечен');
+      }
+    } else {
+      _showSnack('Шаг цели снова открыт');
     }
   }
 

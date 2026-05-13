@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/shop_purchase.dart';
 import '../models/shop_reward.dart';
+import 'current_user_doc.dart';
 
 class ShopInsufficientCoinsException implements Exception {
   @override
@@ -12,6 +13,7 @@ class ShopInsufficientCoinsException implements Exception {
 class ShopService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// Auth uid, если есть.
   String? get _uidOrNull => FirebaseAuth.instance.currentUser?.uid;
 
   String _requireUid() {
@@ -22,18 +24,31 @@ class ShopService {
     return uid;
   }
 
-  CollectionReference<Map<String, dynamic>> _rewardsCol(String uid) =>
-      _firestore.collection('users').doc(uid).collection('shopRewards');
+  /// ID документа пользователя в Firestore (читаемый, после миграции).
+  String? get _docIdOrNull {
+    final uid = _uidOrNull;
+    if (uid == null || uid.isEmpty) return null;
+    return CurrentUserDoc.cachedDocId() ?? uid;
+  }
 
-  CollectionReference<Map<String, dynamic>> _purchasesCol(String uid) =>
-      _firestore.collection('users').doc(uid).collection('shopPurchases');
+  String _requireDocId() {
+    final id = _docIdOrNull;
+    if (id == null) throw StateError('Пользователь не авторизован');
+    return id;
+  }
+
+  CollectionReference<Map<String, dynamic>> _rewardsCol(String docId) =>
+      _firestore.collection('users').doc(docId).collection('shopRewards');
+
+  CollectionReference<Map<String, dynamic>> _purchasesCol(String docId) =>
+      _firestore.collection('users').doc(docId).collection('shopPurchases');
 
   Stream<List<ShopReward>> watchCustomRewards() {
-    final uid = _uidOrNull;
-    if (uid == null) {
+    final docId = _docIdOrNull;
+    if (docId == null) {
       return Stream<List<ShopReward>>.value(const []);
     }
-    return _rewardsCol(uid)
+    return _rewardsCol(docId)
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snap) => snap.docs
@@ -42,11 +57,11 @@ class ShopService {
   }
 
   Stream<List<ShopPurchase>> watchPurchases({int limit = 80}) {
-    final uid = _uidOrNull;
-    if (uid == null) {
+    final docId = _docIdOrNull;
+    if (docId == null) {
       return Stream<List<ShopPurchase>>.value(const []);
     }
-    return _purchasesCol(uid)
+    return _purchasesCol(docId)
         .orderBy('purchasedAt', descending: true)
         .limit(limit)
         .snapshots()
@@ -63,9 +78,10 @@ class ShopService {
     if (price < 0) {
       throw ArgumentError.value(price, 'price');
     }
-    final uid = _requireUid();
-    final userRef = _firestore.collection('users').doc(uid);
-    final purchaseRef = _purchasesCol(uid).doc();
+    _requireUid();
+    final docId = _requireDocId();
+    final userRef = _firestore.collection('users').doc(docId);
+    final purchaseRef = _purchasesCol(docId).doc();
 
     await _firestore.runTransaction((transaction) async {
       final snap = await transaction.get(userRef);
@@ -88,8 +104,9 @@ class ShopService {
   }
 
   Future<void> hideBuiltinReward(String builtinId) async {
-    final uid = _requireUid();
-    await _firestore.collection('users').doc(uid).set({
+    _requireUid();
+    final docId = _requireDocId();
+    await _firestore.collection('users').doc(docId).set({
       'shopHiddenBuiltinIds': FieldValue.arrayUnion([builtinId]),
     }, SetOptions(merge: true));
   }
@@ -107,8 +124,9 @@ class ShopService {
     if (price < 1) {
       throw ArgumentError('Цена от 1 монеты');
     }
-    final uid = _requireUid();
-    await _rewardsCol(uid).add({
+    _requireUid();
+    final userDocId = _requireDocId();
+    await _rewardsCol(userDocId).add({
       'title': t,
       'description': description.trim(),
       'price': price,
@@ -119,7 +137,8 @@ class ShopService {
   }
 
   Future<void> deleteCustomReward(String docId) async {
-    final uid = _requireUid();
-    await _rewardsCol(uid).doc(docId).delete();
+    _requireUid();
+    final userDocId = _requireDocId();
+    await _rewardsCol(userDocId).doc(docId).delete();
   }
 }

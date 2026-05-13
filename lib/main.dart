@@ -8,6 +8,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'app/app.dart';
 import 'firebase_options.dart';
+import 'services/current_user_doc.dart';
+import 'services/firestore_id_migration.dart';
 import 'services/google_calendar_service.dart';
 import 'services/local_notification_service.dart';
 import 'services/push_notification_bridge.dart';
@@ -61,9 +63,37 @@ void main() {
         FirebaseAuth.instance.authStateChanges().listen((user) {
           unawaited(
               GoogleCalendarService.instance.bindToFirebaseUser(user?.uid));
+          final uid = user?.uid;
+          if (uid == null || uid.isEmpty) {
+            CurrentUserDoc.reset();
+            return;
+          }
+          unawaited(() async {
+            await FirestoreIdMigration.instance.runIfNeeded(uid);
+            await CurrentUserDoc.bootstrap();
+          }());
         });
         await GoogleCalendarService.instance
             .bindToFirebaseUser(FirebaseAuth.instance.currentUser?.uid);
+        // Если есть авторизованный пользователь, перед стартом UI прогоним
+        // миграцию и резолвинг docId — чтобы первые же чтения шли по новому
+        // пути `users/{readable-id}`, а не по старому `users/{uid}`.
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        if (currentUid != null && currentUid.isNotEmpty) {
+          try {
+            await FirestoreIdMigration.instance
+                .runIfNeeded(currentUid)
+                .timeout(const Duration(seconds: 8));
+          } catch (e, st) {
+            debugPrint('Startup migration error/timeout: $e\n$st');
+          }
+          try {
+            await CurrentUserDoc.bootstrap()
+                .timeout(const Duration(seconds: 20));
+          } catch (e) {
+            debugPrint('Startup bootstrap docId error: $e');
+          }
+        }
       } catch (e, st) {
         debugPrint('GoogleCalendarService.init: $e\n$st');
       }

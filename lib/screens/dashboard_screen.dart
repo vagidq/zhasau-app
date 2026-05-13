@@ -1339,7 +1339,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return task;
   }
 
-  void _toggleGoalTask(tm.TaskModel task) {
+  Future<void> _toggleGoalTask(tm.TaskModel task) async {
     final gid = task.goalId;
     if (gid == null || gid.isEmpty) return;
     final store = AppStore.instance;
@@ -1352,12 +1352,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
       isXp: true,
     );
 
-    store.updateTask(updatedTask);
+    try {
+      await store.updateTask(updatedTask);
+    } catch (_) {
+      if (!mounted) return;
+      MainShell.of(context).showToast('Не удалось сохранить', isError: true);
+      return;
+    }
+    if (!mounted) return;
 
     if (willComplete) {
-      MainShell.of(context).showToast('+$xpAward XP за задачу!');
+      var bonusGranted = false;
+      var bonusXp = 0;
+      var bonusCoins = 0;
+      for (final g in store.goals) {
+        if (g.id == gid) {
+          bonusGranted = g.completionBonusGranted;
+          bonusXp = g.xpCompletionBonus;
+          bonusCoins = g.coinsCompletionBonus;
+          break;
+        }
+      }
+      final allDone =
+          store.getTasksForGoal(gid).every((t) => t.completed);
+      if (allDone && bonusGranted && (bonusXp > 0 || bonusCoins > 0)) {
+        MainShell.of(context).showToast(
+          'Цель выполнена! +$bonusXp XP · +$bonusCoins монет',
+        );
+      } else {
+        MainShell.of(context).showToast('Шаг цели отмечен');
+      }
     } else {
-      MainShell.of(context).showToast('Задача снова активна');
+      MainShell.of(context).showToast('Шаг цели снова открыт');
     }
   }
 

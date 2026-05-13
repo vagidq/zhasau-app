@@ -1,6 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/habit_model.dart';
+import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
 import '../theme/app_colors.dart';
 
@@ -72,6 +75,19 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
     return out;
   }
 
+  Future<void> _syncHabitToGoogleCalendarIfEnabled(HabitModel habit) async {
+    if (!GoogleCalendarService.instance.isSyncEnabled.value) return;
+    final eventId =
+        await GoogleCalendarService.instance.syncHabitToCalendar(habit);
+    if (eventId != null &&
+        eventId.isNotEmpty &&
+        eventId != habit.calendarEventId &&
+        habit.id != null &&
+        habit.id!.isNotEmpty) {
+      await _habitService.updateHabit(habit.copyWith(calendarEventId: eventId));
+    }
+  }
+
   Future<void> _pickTime() async {
     final initial = TimeOfDay.now();
     final t = await showTimePicker(
@@ -133,6 +149,7 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
               _setChanged(old.repeatWeekdays, _repeatWeekdays()),
         );
         await _habitService.updateHabit(next);
+        await _syncHabitToGoogleCalendarIfEnabled(next);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -155,7 +172,8 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
           coinReward: 0,
           notes: _notes.text.trim(),
         );
-        await _habitService.addHabit(habit);
+        final saved = await _habitService.addHabit(habit);
+        await _syncHabitToGoogleCalendarIfEnabled(saved);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -317,7 +335,16 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
                         runSpacing: 8,
                         children: [
                           FilterChip(
-                            label: const Text('Каждый день'),
+                            label: Text(
+                              'Каждый день',
+                              style: TextStyle(
+                                color: _everyDay
+                                    ? Colors.white
+                                    : AppColors.textDark,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
                             selected: _everyDay,
                             onSelected: (v) {
                               setState(() {
@@ -325,11 +352,27 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
                                 if (v) _weekdays.clear();
                               });
                             },
-                            selectedColor: AppColors.primaryLight,
-                            checkmarkColor: AppColors.primary,
+                            selectedColor: AppColors.primary,
+                            backgroundColor: AppColors.bgWhite,
+                            checkmarkColor: Colors.white,
+                            side: BorderSide(
+                              color: _everyDay
+                                  ? AppColors.primary
+                                  : AppColors.borderDark,
+                              width: 1.5,
+                            ),
                           ),
                           FilterChip(
-                            label: const Text('По дням недели'),
+                            label: Text(
+                              'По дням недели',
+                              style: TextStyle(
+                                color: !_everyDay
+                                    ? Colors.white
+                                    : AppColors.textDark,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
                             selected: !_everyDay,
                             onSelected: (v) {
                               setState(() {
@@ -337,8 +380,15 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
                                 if (_everyDay) _weekdays.clear();
                               });
                             },
-                            selectedColor: AppColors.primaryLight,
-                            checkmarkColor: AppColors.primary,
+                            selectedColor: AppColors.primary,
+                            backgroundColor: AppColors.bgWhite,
+                            checkmarkColor: Colors.white,
+                            side: BorderSide(
+                              color: !_everyDay
+                                  ? AppColors.primary
+                                  : AppColors.borderDark,
+                              width: 1.5,
+                            ),
                           ),
                         ],
                       ),
@@ -351,7 +401,16 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
                             final wd = i + 1;
                             final sel = _weekdays.contains(wd);
                             return FilterChip(
-                              label: Text(_dayLabels[i]),
+                              label: Text(
+                                _dayLabels[i],
+                                style: TextStyle(
+                                  color: sel
+                                      ? Colors.white
+                                      : AppColors.textDark,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
                               selected: sel,
                               onSelected: (v) {
                                 setState(() {
@@ -362,27 +421,68 @@ class _CreateHabitScreenState extends State<CreateHabitScreen> {
                                   }
                                 });
                               },
-                              selectedColor: AppColors.primaryLight,
-                              checkmarkColor: AppColors.primary,
+                              selectedColor: AppColors.primary,
+                              backgroundColor: AppColors.bgWhite,
+                              checkmarkColor: Colors.white,
+                              side: BorderSide(
+                                color: sel
+                                    ? AppColors.primary
+                                    : AppColors.borderDark,
+                                width: 1.5,
+                              ),
                             );
                           }),
                         ),
                       ],
                       const SizedBox(height: 24),
-                      Text(
-                        'Награда: ${_xp.round()} XP за все слоты дня',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                      Text(
-                        'XP делится между отметками по времени.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textMuted,
-                        ),
+                      Builder(
+                        builder: (context) {
+                          final total = _xp.round();
+                          final n = _sortedUniqueTimes().length;
+                          final String title;
+                          final String subtitle;
+                          if (n <= 0) {
+                            title = 'XP за выполнение сегодня: $total';
+                            subtitle =
+                                'Времена не заданы — в день одна галочка «сделано», '
+                                'и вы получаете все $total XP за раз.';
+                          } else if (n == 1) {
+                            title = 'XP за отметку: $total';
+                            subtitle =
+                                'Одно напоминание в день — за нажатие «сделано» '
+                                'начисляется $total XP.';
+                          } else {
+                            final per =
+                                math.max(1, (total / n).round());
+                            title = 'XP за день (на все $n отметок): $total';
+                            subtitle =
+                                'Каждый раз после «сделано» по одному времени — '
+                                'примерно +$per XP (делим $total на $n). '
+                                'За все отметки за день суммарно около $total XP.';
+                          }
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textDark,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       Slider(
                         value: _xp,

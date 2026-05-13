@@ -1,32 +1,23 @@
 rules_version = '2';
 // Схема приложения Zhasau (клиент Flutter):
-//   users/{uid}                    — профиль (name, bio, photoUrl, xp, fcmToken, …)
-//   users/{uid}/goals/{goalId}
-//   users/{uid}/tasks/{taskId}
-//   users/{uid}/notifications/{id} — внутриигровая лента (type, title, body, read, createdAt, …)
-//   admins/{uid}                 — если документ существует и uid == auth.uid, этот пользователь админ (только чтение своей записи)
-// Админ: добавьте в Firebase Console документ admins/<Firebase Auth UID> с любым полем, например { "role": "admin" }.
-// Админ может читать любые users/**; писать — только в свои данные.
-// Корневые коллекции tasks/goals/habits и т.д. клиентом не используются — закрыты явно.
+//   users/{docId}                  — профиль. docId может быть как auth.uid (legacy),
+//                                    так и читаемым `user-<name>-<rnd>`. В новом
+//                                    формате внутри документа есть поле `uid` = auth.uid.
+//   users/{docId}/goals/{goalId}
+//   users/{docId}/tasks/{taskId}
+//   users/{docId}/habits/{habitId}
+//   users/{docId}/notifications/{id}
+//   users/{docId}/shopRewards/{rewardId}
+//   users/{docId}/shopPurchases/{purchaseId}
+//
+// Принцип владения:
+//   - Legacy:  docId == auth.uid                           → владелец.
+//   - Modern:  users/{docId}.data.uid == auth.uid          → владелец.
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() {
       return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-    }
-
-    match /admins/{adminId} {
-      allow read: if isOwner(adminId);
-      allow write: if false;
     }
 
     match /tasks/{document=**} {
@@ -60,14 +51,44 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /users/{userId}/{document=**} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId);
-    }
+    match /users/{docId} {
+      function existingUidMatches() {
+        return resource != null &&
+          'uid' in resource.data &&
+          resource.data.uid == request.auth.uid;
+      }
+      function incomingUidMatches() {
+        return request.resource != null &&
+          'uid' in request.resource.data &&
+          request.resource.data.uid == request.auth.uid;
+      }
 
-    match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if isOwner(userId);
+      function isOwnerOfThisUserDoc() {
+        return isSignedIn() && (
+          request.auth.uid == docId ||
+          existingUidMatches() ||
+          incomingUidMatches()
+        );
+      }
+
+      allow read: if isOwnerOfThisUserDoc();
+      allow write: if isOwnerOfThisUserDoc();
+
+      match /{document=**} {
+        function parentDoc() {
+          return get(/databases/$(database)/documents/users/$(docId));
+        }
+        function ownsParent() {
+          return isSignedIn() && (
+            request.auth.uid == docId ||
+            ('uid' in parentDoc().data &&
+              parentDoc().data.uid == request.auth.uid)
+          );
+        }
+
+        allow read: if ownsParent();
+        allow write: if ownsParent();
+      }
     }
   }
 }

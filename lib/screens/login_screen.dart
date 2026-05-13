@@ -58,48 +58,82 @@ class _LoginScreenState extends State<LoginScreen>
     try {
       final email = _emailCtrl.text.trim().toLowerCase();
       final password = _passCtrl.text.trim();
-      var loggedIn = false;
 
-      Object? firebaseError;
       try {
         await _authService.signIn(email, password);
+      } on FirebaseAuthException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_mapAuthError(e))),
+        );
+        return;
+      } catch (e) {
+        final msg = e.toString();
+        final isCredentialLike = msg.contains('invalid-credential') ||
+            msg.contains('wrong-password') ||
+            msg.contains('user-not-found') ||
+            msg.contains('invalid-login-credentials') ||
+            msg.contains('INVALID_LOGIN_CREDENTIALS');
+        if (isCredentialLike) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_mapAuthError(e))),
+          );
+          return;
+        }
+        // Сеть / плагин — пробуем локальный fallback
+        final loggedInLocal = await _localAuthService.signIn(
+          email: email,
+          password: password,
+        );
+        if (loggedInLocal) {
+          await AppStore.instance.resetSession();
+          AppStore.instance.initializeEmptyProfile();
+          final localName = await _localAuthService.getName();
+          if (localName != null && localName.isNotEmpty) {
+            AppStore.instance.userProfile.name = localName;
+          }
+          AppStore.instance.userProfile.email = email;
+          AppStore.instance.refreshUI();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const MainShell(),
+              transitionDuration: const Duration(milliseconds: 400),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
+            ),
+          );
+          return;
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_mapAuthError(e))),
+        );
+        return;
+      }
+
+      try {
         await AppStore.instance.resetSession();
         await AppStore.instance.loadUserData();
-        // Keep local credentials in sync for offline fallback
         await _localAuthService.signUp(
           name: AppStore.instance.userProfile.name,
           email: email,
           password: password,
         );
-        loggedIn = true;
-      } catch (e) {
-        firebaseError = e;
-        final msg = e.toString();
-        // For credential errors — don't fall back, show the real error
-        final isCredentialError = msg.contains('invalid-credential') ||
-            msg.contains('wrong-password') ||
-            msg.contains('user-not-found');
-        if (!isCredentialError) {
-          // Network/config issue — try local auth
-          loggedIn = await _localAuthService.signIn(
-            email: email,
-            password: password,
-          );
-          if (loggedIn) {
-            await AppStore.instance.resetSession();
-            AppStore.instance.initializeEmptyProfile();
-            final localName = await _localAuthService.getName();
-            if (localName != null && localName.isNotEmpty) {
-              AppStore.instance.userProfile.name = localName;
-            }
-            AppStore.instance.userProfile.email = email;
-            AppStore.instance.refreshUI();
-          }
-        }
-      }
-
-      if (!loggedIn) {
-        throw firebaseError ?? Exception('invalid-credential');
+      } catch (e, st) {
+        debugPrint('Login post-FirebaseAuth: $e\n$st');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Вход в аккаунт выполнен, но не удалось подготовить данные приложения. '
+              'Проверьте интернет и доступ к Firestore. '
+              '(${_shortError(e)})',
+            ),
+          ),
+        );
+        return;
       }
 
       if (!mounted) return;
@@ -112,7 +146,8 @@ class _LoginScreenState extends State<LoginScreen>
               FadeTransition(opacity: anim, child: child),
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('Login unexpected: $e\n$st');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Ошибка входа: ${_mapAuthError(e)}')),
@@ -120,6 +155,12 @@ class _LoginScreenState extends State<LoginScreen>
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String _shortError(Object e) {
+    final s = e.toString();
+    if (s.length > 120) return '${s.substring(0, 117)}…';
+    return s;
   }
 
   String _mapAuthError(Object error) {
@@ -130,22 +171,38 @@ class _LoginScreenState extends State<LoginScreen>
         case 'wrong-password':
           return 'Неверный пароль';
         case 'invalid-credential':
+        case 'invalid-login-credentials':
           return 'Неверный email или пароль';
         case 'invalid-email':
           return 'Некорректный email';
+        case 'user-disabled':
+          return 'Этот аккаунт отключён';
         case 'too-many-requests':
           return 'Слишком много попыток, попробуйте позже';
         case 'operation-not-allowed':
           return 'В Firebase Console включите «Email/Password» (Authentication → Sign-in method).';
         case 'network-request-failed':
           return 'Нет подключения к сети';
+        case 'internal-error':
+          return 'Временная ошибка сервера Google. Повторите вход позже.';
+        case 'web-context-cancelled':
+        case 'web-storage-unsupported':
+          return 'Ошибка окна входа. Закройте и откройте экран снова.';
       }
+      final m = error.message?.trim();
+      if (m != null && m.isNotEmpty) return m;
+      return 'Ошибка входа (код: ${error.code})';
     }
     final message = error.toString();
     if (message.contains('user-not-found')) return 'Пользователь не найден';
     if (message.contains('wrong-password')) return 'Неверный пароль';
-    if (message.contains('invalid-credential')) return 'Неверный email или пароль';
+    if (message.contains('invalid-credential') ||
+        message.contains('invalid-login-credentials') ||
+        message.contains('INVALID_LOGIN_CREDENTIALS')) {
+      return 'Неверный email или пароль';
+    }
     if (message.contains('invalid-email')) return 'Некорректный email';
+    if (message.contains('user-disabled')) return 'Этот аккаунт отключён';
     if (message.contains('too-many-requests')) {
       return 'Слишком много попыток, попробуйте позже';
     }
@@ -153,7 +210,18 @@ class _LoginScreenState extends State<LoginScreen>
         message.contains('sign-in provider is disabled')) {
       return 'В Firebase Console включите способ входа «Email/Password».';
     }
-    return 'Не удалось войти';
+    if (message.contains('network-request-failed') ||
+        message.contains('SocketException') ||
+        message.contains('Failed host lookup')) {
+      return 'Нет подключения к сети';
+    }
+    if (message.contains('permission-denied')) {
+      return 'Нет доступа к данным (Firestore). Проверьте правила в консоли Firebase.';
+    }
+    if (message.contains('TimeoutException') || message.contains('timeout')) {
+      return 'Превышено время ожидания. Проверьте сеть.';
+    }
+    return 'Не удалось войти (${_shortError(error)})';
   }
 
   @override

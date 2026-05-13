@@ -3,6 +3,28 @@ import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import '../models/task_model.dart';
 
+/// Человекочитаемая дата/время дедлайна (локальное время устройства).
+String formatTaskDeadlineLabel(DateTime dt) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(dt.year, dt.month, dt.day);
+  final diff = day.difference(today).inDays;
+  String dayPart;
+  if (diff == 0) {
+    dayPart = 'Сегодня';
+  } else if (diff == 1) {
+    dayPart = 'Завтра';
+  } else if (diff == -1) {
+    dayPart = 'Вчера';
+  } else {
+    dayPart =
+        '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
+  }
+  final hm =
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  return '$dayPart · $hm';
+}
+
 class TaskItemWidget extends StatefulWidget {
   final TaskModel task;
   final VoidCallback onToggle;
@@ -146,6 +168,14 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
                           ],
                         ],
                       ),
+                      if (task.scheduledAt != null) ...[
+                        const SizedBox(height: 8),
+                        _DeadlineChip(
+                          scheduledAt: task.scheduledAt!,
+                          completed: task.completed,
+                          isDark: isDark,
+                        ),
+                      ],
                     ],
                   );
 
@@ -259,6 +289,71 @@ class _TaskItemWidgetState extends State<TaskItemWidget> {
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Компактная плашка дедлайна под подписью задачи.
+class _DeadlineChip extends StatelessWidget {
+  const _DeadlineChip({
+    required this.scheduledAt,
+    required this.completed,
+    required this.isDark,
+  });
+
+  final DateTime scheduledAt;
+  final bool completed;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final overdue = !completed && scheduledAt.isBefore(now);
+
+    final bg = overdue
+        ? AppColors.warning.withValues(alpha: isDark ? 0.14 : 0.12)
+        : AppColors.primary.withValues(alpha: isDark ? 0.12 : 0.08);
+    final border = overdue
+        ? AppColors.warning.withValues(alpha: 0.35)
+        : AppColors.primary.withValues(alpha: isDark ? 0.28 : 0.22);
+    final iconColor =
+        overdue ? AppColors.warning : (isDark ? AppColors.primaryDark : AppColors.primary);
+    final textColor = overdue
+        ? (isDark ? AppColors.warning : const Color(0xFFB45309))
+        : (isDark ? AppColors.textDark : AppColors.textDark);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: border, width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.schedule_rounded,
+            size: 15,
+            color: iconColor,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              formatTaskDeadlineLabel(scheduledAt),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.1,
+                color: textColor,
+                height: 1.2,
+              ),
             ),
           ),
         ],

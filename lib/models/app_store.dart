@@ -1,13 +1,23 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../achievements/achievement_catalog.dart';
 import '../models/goal_model.dart';
 import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
+import '../services/current_user_doc.dart';
 import '../services/google_calendar_service.dart';
 import '../services/user_service.dart';
+
+String _resolvedProfileName(Map<String, dynamic> data) {
+  final fromFs = (data['name'] as String?)?.trim();
+  if (fromFs != null && fromFs.isNotEmpty) return fromFs;
+  final fromAuth = FirebaseAuth.instance.currentUser?.displayName?.trim();
+  if (fromAuth != null && fromAuth.isNotEmpty) return fromAuth;
+  return 'Пользователь';
+}
 
 class AppStore extends ChangeNotifier {
   static final AppStore instance = AppStore._internal();
@@ -87,6 +97,15 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> loadUserData() async {
+    final authUid = FirebaseAuth.instance.currentUser?.uid;
+    if (authUid != null && authUid.isNotEmpty) {
+      try {
+        await CurrentUserDoc.docId();
+      } catch (e, st) {
+        debugPrint('CurrentUserDoc.docId: $e\n$st');
+      }
+    }
+
     await _userProfileSub?.cancel();
     await _goalsSub?.cancel();
     await _tasksSub?.cancel();
@@ -107,9 +126,17 @@ class AppStore extends ChangeNotifier {
       // User profile (XP/level/coins/streak)
       _userProfileSub = _userService.getUserProfile().listen((data) {
         if (data == null) {
-          // If user doc doesn't exist yet, keep existing profile or init empty
           if (!_hasProfile) {
             initializeEmptyProfile();
+            final dn = FirebaseAuth.instance.currentUser?.displayName?.trim();
+            if (dn != null && dn.isNotEmpty) {
+              _userProfile.name = dn;
+            }
+            final em = FirebaseAuth.instance.currentUser?.email?.trim();
+            if (em != null && em.isNotEmpty) {
+              _userProfile.email = em;
+            }
+            notifyListeners();
           }
           return;
         }
@@ -131,7 +158,7 @@ class AppStore extends ChangeNotifier {
 
         _userProfile = UserProfile(
           id: _userService.userId,
-          name: (data['name'] as String?) ?? 'Пользователь',
+          name: _resolvedProfileName(data),
           email: data['email'] as String?,
           bio: (data['bio'] as String?) ?? '',
           photoUrl: data['photoUrl'] as String?,
@@ -250,6 +277,7 @@ class AppStore extends ChangeNotifier {
     try {
       await _userService.updateGoal(cleared);
       await _persistUserProfile();
+      await _userService.deleteInAppNotificationsWithGoalId(goalId);
     } catch (e, st) {
       debugPrint('revoke goal bonus: $e\n$st');
     }
@@ -260,6 +288,7 @@ class AppStore extends ChangeNotifier {
     TaskModel updatedTask,
   ) async {
     final tasksInGoal = getTasksForGoal(goalId);
+    if (tasksInGoal.isEmpty) return;
     final allDone = tasksInGoal.every(
       (t) => t.id == updatedTask.id ? updatedTask.completed : t.completed,
     );
@@ -290,6 +319,7 @@ class AppStore extends ChangeNotifier {
         type: InAppNotificationTypes.goalBonus,
         title: 'Цель достигнута!',
         body: '«$title»: бонус +$bonusXp XP и +$bonusCoins монет за выполнение всех задач.',
+        goalId: goalId,
       );
     } catch (e, st) {
       debugPrint('grant goal bonus: $e\n$st');
@@ -356,7 +386,7 @@ class AppStore extends ChangeNotifier {
   Future<void> _deleteCalendarEventIfAny(String? eventId) async {
     if (eventId == null || eventId.isEmpty) return;
     try {
-      await GoogleCalendarService.instance.deleteEvent(eventId);
+      await GoogleCalendarService.instance.deleteStoredCalendarEventIds(eventId);
     } catch (_) {}
   }
 
@@ -421,12 +451,6 @@ class AppStore extends ChangeNotifier {
       final newAchievements = _mergeNewAchievements();
       notifyListeners();
       unawaited(_persistAndAchievementNotifications(newAchievements));
-      if (taskForStore.goalId != null && taskForStore.goalId!.isNotEmpty) {
-        unawaited(_grantGoalCompletionBonusIfAllDone(
-          taskForStore.goalId!,
-          taskForStore,
-        ));
-      }
       taskForStore = taskForStore.copyWith(completedAt: completionTime);
     } else if (wasCompleted && !isNowCompleted) {
       if (oldTask.goalId != null && oldTask.goalId!.isNotEmpty) {
@@ -475,6 +499,22 @@ class AppStore extends ChangeNotifier {
       _tasks[index] = oldTask;
       notifyListeners();
       rethrow;
+    }
+
+    // Бонус за цель — только после успешной записи задачи в Firestore, чтобы
+    // локальный список задач и сервер не расходились с расчётом «все выполнены».
+    if (!wasCompleted &&
+        isNowCompleted &&
+        taskForStore.goalId != null &&
+        taskForStore.goalId!.isNotEmpty) {
+      try {
+        await _grantGoalCompletionBonusIfAllDone(
+          taskForStore.goalId!,
+          taskForStore,
+        );
+      } catch (e, st) {
+        debugPrint('grant goal completion bonus: $e\n$st');
+      }
     }
   }
 

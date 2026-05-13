@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -35,6 +37,10 @@ class GoogleCalendarService {
   GoogleSignIn? _googleSignIn;
   GoogleSignInAccount? _currentUser;
   gcal.CalendarApi? _calendarApi;
+  /// IANA-таймзона основного календаря Google (например, `Asia/Almaty`).
+  /// Кешируем после успешного входа, чтобы создавать события в том же поясе,
+  /// в котором пользователь их видит в Google Calendar.
+  String? _primaryCalendarTimeZone;
   /// Последний [User.uid], для которого применена синхронизация prefs + Google.
   String? _boundFirebaseUid;
   Future<void> _bindQueue = Future<void>.value();
@@ -83,6 +89,7 @@ class GoogleCalendarService {
     }
     _calendarApi = null;
     _currentUser = null;
+    _primaryCalendarTimeZone = null;
     isSignedIn.value = false;
     accountEmail.value = null;
 
@@ -126,22 +133,50 @@ class GoogleCalendarService {
   }
 
   Future<void> _initCalendarApi() async {
-    if (_currentUser == null) return;
+    if (_currentUser == null) {
+      debugPrint('initCalendarApi: _currentUser=null, пропускаем');
+      return;
+    }
     try {
       final headers = await _currentUser!.authHeaders;
       final client = GoogleAuthClient(headers);
       _calendarApi = gcal.CalendarApi(client);
+      debugPrint('initCalendarApi: Calendar API готов');
+      unawaited(_refreshPrimaryCalendarTimeZone());
     } catch (e) {
-      debugPrint('Failed to init Calendar API: $e');
+      debugPrint('initCalendarApi: ошибка получения authHeaders: $e');
       _calendarApi = null;
     }
   }
 
+  /// Узнаём таймзону основного календаря пользователя, чтобы создавать
+  /// события в том же поясе. Иначе если устройство в одной TZ, а календарь
+  /// в другой — время «съезжает» на разницу часов.
+  Future<void> _refreshPrimaryCalendarTimeZone() async {
+    final api = _calendarApi;
+    if (api == null) return;
+    try {
+      final cal = await api.calendars.get(_calendarId);
+      final tz = cal.timeZone;
+      if (tz != null && tz.isNotEmpty) {
+        _primaryCalendarTimeZone = tz;
+        debugPrint('Primary calendar timezone: $tz');
+      }
+    } catch (e) {
+      debugPrint('Не удалось получить timezone календаря: $e');
+    }
+  }
+
   // ── Sign In / Out ──────────────────────────────────────────────────────────
+  /// Последняя причина неуспеха [signIn]; для отображения пользователю.
+  String? lastSignInError;
+
   Future<bool> signIn() async {
+    lastSignInError = null;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       debugPrint('Google Calendar sign-in: нет пользователя Firebase');
+      lastSignInError = 'Сначала войдите в аккаунт приложения.';
       return false;
     }
     try {
@@ -154,9 +189,25 @@ class GoogleCalendarService {
         isSyncEnabled.value = true;
         return true;
       }
+      lastSignInError = 'Вы отменили вход в Google.';
       return false;
     } catch (e) {
       debugPrint('Google sign-in error: $e');
+      final msg = e.toString();
+      if (msg.contains('network_error') ||
+          msg.contains('ApiException: 7') ||
+          msg.contains('UnknownHost')) {
+        lastSignInError =
+            'Нет подключения к Google. Проверьте интернет на устройстве/эмуляторе.';
+      } else if (msg.contains('ApiException: 10') ||
+          msg.contains('DEVELOPER_ERROR')) {
+        lastSignInError =
+            'Google Sign-In не настроен (DEVELOPER_ERROR). Проверьте SHA‑1 и OAuth client.';
+      } else if (msg.contains('sign_in_canceled')) {
+        lastSignInError = 'Вы отменили вход в Google.';
+      } else {
+        lastSignInError = 'Не удалось войти в Google: $msg';
+      }
       return false;
     }
   }
@@ -173,6 +224,7 @@ class GoogleCalendarService {
       isSignedIn.value = false;
       accountEmail.value = null;
       _calendarApi = null;
+      _primaryCalendarTimeZone = null;
     } catch (e) {
       debugPrint('Google sign-out error: $e');
     }
@@ -181,21 +233,185 @@ class GoogleCalendarService {
   // ── Helpers ────────────────────────────────────────────────────────────────
   bool get _ready => _calendarApi != null && isSyncEnabled.value;
 
+  /// Возвращает локальное wall-clock значение [d] как DateTime без признака UTC.
+  /// Нужно потому, что googleapis сериализует UTC-DateTime с суффиксом `Z`,
+  /// и Google игнорирует параметр `timeZone`.
+  DateTime _stripTz(DateTime d) {
+    final local = d.isUtc ? d.toLocal() : d;
+    return DateTime(local.year, local.month, local.day, local.hour,
+        local.minute, local.second, local.millisecond, local.microsecond);
+  }
+
+  /// Таймзона, в которой надо создавать события.
+  ///
+  /// Приоритет: таймзона основного календаря пользователя (`_primaryCalendarTimeZone`),
+  /// чтобы введённое в приложении «16:00» отображалось как «16:00» и в Google
+  /// Calendar (даже если устройство стоит в другой TZ). Если по какой-то причине
+  /// календарную TZ получить не удалось — падаем на смещение устройства
+  /// (`Etc/GMT±N`).
+  String _deviceTimeZoneName(DateTime moment) {
+    final calTz = _primaryCalendarTimeZone;
+    if (calTz != null && calTz.isNotEmpty) return calTz;
+    final offset = moment.isUtc
+        ? moment.toLocal().timeZoneOffset
+        : moment.timeZoneOffset;
+    final totalMinutes = offset.inMinutes;
+    if (totalMinutes == 0) return 'Etc/GMT';
+    if (totalMinutes % 60 != 0) return 'UTC';
+    final hours = totalMinutes ~/ 60;
+    return hours > 0 ? 'Etc/GMT-$hours' : 'Etc/GMT+${-hours}';
+  }
+
+  /// День недели 1…7 подходит под расписание привычки (пустой список = каждый день).
+  bool _habitRunsOnWeekday(HabitModel habit, int weekday) {
+    if (!habit.isRecurring) return true;
+    if (habit.repeatWeekdays.isEmpty) return true;
+    return habit.repeatWeekdays.contains(weekday);
+  }
+
+  /// Локальная дата+время из календарной даты [day] и строки `HH:mm`.
+  DateTime? _dateTimeFromHmOnDay(DateTime day, String hm) {
+    final n = HabitModel.normalizeTimeHm(hm);
+    if (n == null) return null;
+    final parts = n.split(':');
+    final h = int.tryParse(parts[0]);
+    final mi = int.tryParse(parts[1]);
+    if (h == null || mi == null) return null;
+    return DateTime(day.year, day.month, day.day, h, mi);
+  }
+
+  /// Момент начала для синхронизации с Google Calendar.
+  ///
+  /// Для разовой задачи с [HabitModel.deadline] — берём дедлайн.
+  /// Для повторяющейся с [HabitModel.reminderTimes] — **первое** подходящее
+  /// сочетание дня недели и времени слота **на или после даты создания**
+  /// привычки (стабильно при повторных синках). Раньше использовался
+  /// [HabitModel.createdAt] целиком — в календаре оказывалось время нажатия
+  /// «Сохранить», а не выбранные 12:05.
+  DateTime _habitCalendarStartLocal(HabitModel habit) {
+    if (habit.deadline != null) {
+      return habit.deadline!;
+    }
+    if (habit.reminderTimes.isNotEmpty) {
+      final anchor = DateTime(
+        habit.createdAt.year,
+        habit.createdAt.month,
+        habit.createdAt.day,
+      );
+      for (var offset = 0; offset < 14; offset++) {
+        final day = anchor.add(Duration(days: offset));
+        if (!_habitRunsOnWeekday(habit, day.weekday)) continue;
+        for (final hm in habit.reminderTimes) {
+          final dt = _dateTimeFromHmOnDay(day, hm);
+          if (dt != null) return dt;
+        }
+      }
+    }
+    return habit.createdAt;
+  }
+
   /// Re-authenticate if token expired. Returns true if ready.
   Future<bool> _ensureAuth() async {
     if (_calendarApi != null) return true;
     if (_currentUser == null) {
       try {
-        await _googleSignIn?.signInSilently();
-      } catch (_) {}
+        final account = await _googleSignIn?.signInSilently();
+        if (account == null) {
+          debugPrint(
+              'ensureAuth: signInSilently вернул null (нет кеша/сети/доступа)');
+        }
+      } catch (e) {
+        debugPrint('ensureAuth: signInSilently error: $e');
+      }
     }
     if (_currentUser != null) {
       await _initCalendarApi();
+      // Возможна ситуация: _currentUser есть, но токен протух → authHeaders падает.
+      // Тогда повторно вызовем silent sign-in, чтобы плагин обновил токен.
+      if (_calendarApi == null) {
+        try {
+          await _googleSignIn?.signInSilently();
+        } catch (e) {
+          debugPrint('ensureAuth: повторный signInSilently error: $e');
+        }
+        if (_currentUser != null) {
+          await _initCalendarApi();
+        }
+      }
+    }
+    if (_calendarApi == null) {
+      debugPrint(
+          'ensureAuth: не удалось получить Calendar API (вероятно нет сети к google.com)');
     }
     return _calendarApi != null;
   }
 
   // ── CRUD Events ────────────────────────────────────────────────────────────
+
+  /// RRULE для привычки «каждый день»: 7 вхождений подряд (неделя вперёд).
+  static const _kDailyHabitWeekRrule = <String>['RRULE:FREQ=DAILY;COUNT=7'];
+
+  /// Повторяющаяся привычка «каждый день» ([repeatWeekdays] пусто) — в Calendar
+  /// одна серия на 7 дней; иначе без RRULE (одно событие как раньше).
+  bool _habitEveryDayRecurring(HabitModel habit) {
+    return habit.isRecurring && habit.repeatWeekdays.isEmpty;
+  }
+
+  /// Повтор по выбранным дням недели (1=пн … 7=вс).
+  bool _habitWeekdayRecurring(HabitModel habit) {
+    return habit.isRecurring && habit.repeatWeekdays.isNotEmpty;
+  }
+
+  /// Один или несколько id событий Calendar, сохранённых в Firestore через `|`.
+  List<String> _parseStoredCalendarEventIds(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return const [];
+    return raw
+        .split('|')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  /// Удаляет все события, перечисленные в [raw] (один id или `a|b|c`).
+  Future<void> deleteStoredCalendarEventIds(String? raw) async {
+    for (final id in _parseStoredCalendarEventIds(raw)) {
+      await deleteEvent(id);
+    }
+  }
+
+  /// Строки `HH:mm` для слотов в календаре (если слотов нет — время из [createdAt]).
+  List<String> _habitCalendarTimeStrings(HabitModel habit) {
+    if (habit.reminderTimes.isNotEmpty) {
+      return List<String>.from(habit.reminderTimes);
+    }
+    final c = habit.createdAt;
+    return [
+      '${c.hour.toString().padLeft(2, '0')}:${c.minute.toString().padLeft(2, '0')}',
+    ];
+  }
+
+  /// Все вхождения привычки «по дням недели» в окне из **7 календарных дней**
+  /// начиная с даты создания (локально), с выбранными днями и временами слотов.
+  List<DateTime> _habitWeekdaySlotsInSevenDayWindow(HabitModel habit) {
+    final anchor = DateTime(
+      habit.createdAt.year,
+      habit.createdAt.month,
+      habit.createdAt.day,
+    );
+    final weekdays = habit.repeatWeekdays.toSet();
+    final times = _habitCalendarTimeStrings(habit);
+    final out = <DateTime>[];
+    for (var offset = 0; offset < 7; offset++) {
+      final day = anchor.add(Duration(days: offset));
+      if (!weekdays.contains(day.weekday)) continue;
+      for (final hm in times) {
+        final dt = _dateTimeFromHmOnDay(day, hm);
+        if (dt != null) out.add(dt);
+      }
+    }
+    out.sort();
+    return out;
+  }
 
   /// Create an event. Returns the event ID or null on failure.
   Future<String?> createEvent({
@@ -205,17 +421,24 @@ class GoogleCalendarService {
     required DateTime end,
     List<int>? reminderMinutes,
     String? colorId,
+    List<String>? recurrence,
   }) async {
     if (!_ready) return null;
     if (!await _ensureAuth()) return null;
 
     try {
+      final tz = _deviceTimeZoneName(start);
       final event = gcal.Event()
         ..summary = title
         ..description = description ?? ''
-        // Используем UTC, чтобы Google сам применял часовой пояс аккаунта
-        ..start = gcal.EventDateTime(dateTime: start.toUtc())
-        ..end = gcal.EventDateTime(dateTime: end.toUtc());
+        // Локальное wall-clock + явная IANA-таймзона устройства:
+        // Google интерпретирует время как «вот это число часов:минут в этом TZ».
+        ..start = gcal.EventDateTime(dateTime: _stripTz(start), timeZone: tz)
+        ..end = gcal.EventDateTime(dateTime: _stripTz(end), timeZone: tz);
+
+      if (recurrence != null && recurrence.isNotEmpty) {
+        event.recurrence = recurrence;
+      }
 
       // Reminders
       if (reminderMinutes != null && reminderMinutes.isNotEmpty) {
@@ -232,16 +455,23 @@ class GoogleCalendarService {
         event.colorId = colorId;
       }
 
+      debugPrint(
+        'Calendar createEvent: title="$title" start=$start end=$end tz=$tz '
+        'recurrence=${recurrence ?? const []}',
+      );
       final created = await _calendarApi!.events.insert(event, _calendarId);
       debugPrint('Calendar event created: ${created.id}');
       return created.id;
-    } catch (e) {
-      debugPrint('Error creating calendar event: $e');
+    } catch (e, st) {
+      debugPrint('Error creating calendar event: $e\n$st');
       return null;
     }
   }
 
   /// Update an existing event by ID.
+  ///
+  /// [recurrence]: если передан (в т.ч. пустой список) — перезаписывает правила
+  /// повтора серии; `null` — поле в API не трогаем.
   Future<bool> updateEvent({
     required String eventId,
     String? title,
@@ -249,6 +479,7 @@ class GoogleCalendarService {
     DateTime? start,
     DateTime? end,
     String? colorId,
+    List<String>? recurrence,
   }) async {
     if (!_ready) return false;
     if (!await _ensureAuth()) return false;
@@ -260,14 +491,21 @@ class GoogleCalendarService {
       if (title != null) existing.summary = title;
       if (description != null) existing.description = description;
       if (start != null) {
-        existing.start =
-            gcal.EventDateTime(dateTime: start.toUtc());
+        existing.start = gcal.EventDateTime(
+          dateTime: _stripTz(start),
+          timeZone: _deviceTimeZoneName(start),
+        );
       }
       if (end != null) {
-        existing.end =
-            gcal.EventDateTime(dateTime: end.toUtc());
+        existing.end = gcal.EventDateTime(
+          dateTime: _stripTz(end),
+          timeZone: _deviceTimeZoneName(end),
+        );
       }
       if (colorId != null) existing.colorId = colorId;
+      if (recurrence != null) {
+        existing.recurrence = recurrence.isEmpty ? null : recurrence;
+      }
 
       await _calendarApi!.events.update(existing, _calendarId, eventId);
       return true;
@@ -317,35 +555,90 @@ class GoogleCalendarService {
   // ── Sync Habits ↔ Calendar ─────────────────────────────────────────────────
 
   /// Sync a habit (task) to Google Calendar.
-  /// Returns the calendar event ID.
+  ///
+  /// Возвращает один id события или несколько, склеенных через `|` (режим
+  /// «по дням недели» на неделю вперёд).
   Future<String?> syncHabitToCalendar(HabitModel habit) async {
-    if (!_ready) return null;
+    if (!isSyncEnabled.value) {
+      debugPrint('syncHabitToCalendar: isSyncEnabled=false');
+      return null;
+    }
+    if (_calendarApi == null) {
+      debugPrint('syncHabitToCalendar: api=null, re-auth attempt');
+      if (!await _ensureAuth()) {
+        debugPrint('syncHabitToCalendar: re-auth failed');
+        return null;
+      }
+    }
 
-    final start = habit.deadline ?? habit.createdAt;
-    final end = start.add(const Duration(hours: 1));
     final description = _buildHabitDescription(habit);
+    final stored = habit.calendarEventId;
+    var parsedIds = _parseStoredCalendarEventIds(stored);
+    final dailyWeek = _habitEveryDayRecurring(habit);
+    final weekdayWeek = _habitWeekdayRecurring(habit);
 
-    // If already linked — update
-    if (habit.calendarEventId != null && habit.calendarEventId!.isNotEmpty) {
+    // ——— Выбранные дни недели: отдельное событие на каждый слот в течение 7 дней
+    if (weekdayWeek) {
+      final slots = _habitWeekdaySlotsInSevenDayWindow(habit);
+      debugPrint(
+        'syncHabitToCalendar (weekdays): "${habit.title}" slots=${slots.length} '
+        'days=${habit.repeatWeekdays}',
+      );
+      await deleteStoredCalendarEventIds(stored);
+      if (slots.isEmpty) return null;
+      final newIds = <String>[];
+      final colorId = habit.completed ? '2' : (habit.isExpired ? '11' : '9');
+      for (final slotStart in slots) {
+        final slotEnd = slotStart.add(const Duration(hours: 1));
+        final id = await createEvent(
+          title: '📋 ${habit.title}',
+          description: description,
+          start: slotStart,
+          end: slotEnd,
+          reminderMinutes: const [30, 10],
+          colorId: colorId,
+          recurrence: null,
+        );
+        if (id != null && id.isNotEmpty) newIds.add(id);
+      }
+      if (newIds.isEmpty) return null;
+      return newIds.join('|');
+    }
+
+    final start = _habitCalendarStartLocal(habit);
+    final end = start.add(const Duration(hours: 1));
+    debugPrint(
+      'syncHabitToCalendar: title="${habit.title}" start=$start '
+      '(deadline=${habit.deadline}, reminders=${habit.reminderTimes})',
+    );
+
+    if (parsedIds.length > 1) {
+      await deleteStoredCalendarEventIds(stored);
+      parsedIds = [];
+    }
+
+    if (parsedIds.length == 1) {
       final updated = await updateEvent(
-        eventId: habit.calendarEventId!,
+        eventId: parsedIds.first,
         title: '📋 ${habit.title}',
         description: description,
         start: start,
         end: end,
-        colorId: habit.completed ? '2' : (habit.isExpired ? '11' : '9'), // green / red / blue
+        colorId: habit.completed ? '2' : (habit.isExpired ? '11' : '9'),
+        recurrence: dailyWeek ? _kDailyHabitWeekRrule : const <String>[],
       );
-      return updated ? habit.calendarEventId : null;
+      if (updated) return parsedIds.first;
+      await deleteEvent(parsedIds.first);
     }
 
-    // Otherwise — create new
     return await createEvent(
       title: '📋 ${habit.title}',
       description: description,
       start: start,
       end: end,
-      reminderMinutes: [30, 10],
-      colorId: habit.isQuickTask ? '6' : '9', // orange for quick, blue for regular
+      reminderMinutes: const [30, 10],
+      colorId: habit.isQuickTask ? '6' : '9',
+      recurrence: dailyWeek ? _kDailyHabitWeekRrule : null,
     );
   }
 

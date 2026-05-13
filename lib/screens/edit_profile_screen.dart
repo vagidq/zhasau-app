@@ -18,14 +18,12 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _name;
   late final TextEditingController _bio;
-  late final TextEditingController _manualUrl;
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
   bool _saving = false;
   bool _removedPhoto = false;
   XFile? _pendingAvatar;
   Uint8List? _previewBytes;
-  bool _showManualUrl = false;
 
   @override
   void initState() {
@@ -33,21 +31,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final u = AppStore.instance.userProfile;
     _name = TextEditingController(text: u.name);
     _bio = TextEditingController(text: u.bio);
-    _manualUrl = TextEditingController();
   }
 
   @override
   void dispose() {
     _name.dispose();
     _bio.dispose();
-    _manualUrl.dispose();
     super.dispose();
-  }
-
-  static bool _isValidHttpUrl(String value) {
-    final u = Uri.tryParse(value.trim());
-    if (u == null || !u.hasScheme) return false;
-    return u.scheme == 'http' || u.scheme == 'https';
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -63,7 +53,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _pendingAvatar = x;
         _previewBytes = bytes;
         _removedPhoto = false;
-        _manualUrl.clear();
       });
     } catch (e) {
       if (!mounted) return;
@@ -129,7 +118,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     _pendingAvatar = null;
                     _previewBytes = null;
                     _removedPhoto = true;
-                    _manualUrl.clear();
                   });
                 },
               ),
@@ -151,8 +139,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         photoOut = null;
       } else if (_pendingAvatar != null) {
         photoOut = await ProfilePhotoService.instance.uploadProfileImage(_pendingAvatar!);
-      } else if (_manualUrl.text.trim().isNotEmpty) {
-        photoOut = _manualUrl.text.trim();
       } else {
         photoOut = AppStore.instance.userProfile.photoUrl?.trim();
         if (photoOut != null && photoOut.isEmpty) photoOut = null;
@@ -411,62 +397,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           'О себе',
                           hint: 'Коротко о себе — по желанию',
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      InkWell(
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: () => setState(() => _showManualUrl = !_showManualUrl),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                _showManualUrl
-                                    ? Icons.expand_less_rounded
-                                    : Icons.link_rounded,
-                                color: AppColors.primary,
-                                size: 22,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Указать фото по ссылке',
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      AnimatedCrossFade(
-                        firstChild: const SizedBox.shrink(),
-                        secondChild: Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: TextFormField(
-                            controller: _manualUrl,
-                            decoration: _fieldDecoration(
-                              'URL картинки',
-                              hint: 'https://…',
-                            ),
-                            keyboardType: TextInputType.url,
-                            autocorrect: false,
-                            validator: (v) {
-                              if (!_showManualUrl || v == null || v.trim().isEmpty) {
-                                return null;
-                              }
-                              if (!_isValidHttpUrl(v)) {
-                                return 'Нужна ссылка http:// или https://';
-                              }
-                              return null;
-                            },
-                          ),
-                        ),
-                        crossFadeState: _showManualUrl
-                            ? CrossFadeState.showSecond
-                            : CrossFadeState.showFirst,
-                        duration: const Duration(milliseconds: 200),
                       ),
                       const SizedBox(height: 28),
                       SizedBox(

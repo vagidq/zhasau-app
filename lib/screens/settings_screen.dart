@@ -11,10 +11,8 @@ import '../services/auth_service.dart';
 import '../services/local_auth_service.dart';
 import '../services/google_calendar_service.dart';
 import '../services/habit_service.dart';
-import '../services/admin_service.dart';
 import '../services/push_notification_bridge.dart';
 import 'splash_screen.dart';
-import 'admin/admin_dashboard_screen.dart';
 import 'edit_profile_screen.dart';
 
 /// Почта для пункта «Поддержка».
@@ -31,7 +29,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
   final LocalAuthService _localAuthService = LocalAuthService();
   final HabitService _habitService = HabitService();
-  final AdminService _adminService = AdminService();
   // Локальные состояния для свитчеров
   bool _notificationsEnabled = true;
   bool _soundEnabled = true;
@@ -238,6 +235,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     AppColors.isDarkMode.addListener(_onThemeChange);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final gcal = GoogleCalendarService.instance;
+      if (gcal.isSyncEnabled.value && !gcal.isSyncing.value) {
+        unawaited(_syncAll(silent: true));
+      }
+    });
   }
 
   void _onThemeChange() => setState(() {});
@@ -375,6 +378,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           valueListenable:
                               GoogleCalendarService.instance.accountEmail,
                           builder: (context, email, _) {
+                            return ValueListenableBuilder<bool>(
+                              valueListenable:
+                                  GoogleCalendarService.instance.isSignedIn,
+                              builder: (context, signedIn, _) {
                             return _settingsCard([
                               _settingsSwitch(
                                 icon: Icons.calendar_month_rounded,
@@ -383,15 +390,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 value: syncEnabled,
                                 onChanged: (v) async {
                                   if (v) {
-                                    final ok = await GoogleCalendarService
-                                        .instance
-                                        .signIn();
+                                    final gcal =
+                                        GoogleCalendarService.instance;
+                                    final ok = await gcal.signIn();
                                     if (!context.mounted) return;
                                     if (ok) {
                                       _toast('Google Calendar подключен!');
+                                      unawaited(_syncAll(silent: true));
                                     } else {
-                                      _toast('Не удалось подключить',
-                                          isError: true);
+                                      final reason = gcal.lastSignInError ??
+                                          'Не удалось подключить';
+                                      _toast(reason, isError: true);
                                     }
                                   } else {
                                     await GoogleCalendarService.instance
@@ -402,6 +411,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   setState(() {});
                                 },
                               ),
+                              if (syncEnabled && !signedIn) ...[
+                                _divider(),
+                                InkWell(
+                                  onTap: () async {
+                                    final gcal =
+                                        GoogleCalendarService.instance;
+                                    final ok = await gcal.signIn();
+                                    if (!context.mounted) return;
+                                    if (ok) {
+                                      _toast('Google Calendar подключен!');
+                                      unawaited(_syncAll(silent: true));
+                                    } else {
+                                      _toast(
+                                        gcal.lastSignInError ??
+                                            'Не удалось переподключиться',
+                                        isError: true,
+                                      );
+                                    }
+                                    setState(() {});
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.red
+                                                .withValues(alpha: 0.15),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: Icon(Icons.warning_amber_rounded,
+                                              color: AppColors.red, size: 20),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Нет связи с Google',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppColors.textDark,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Задачи не синхронизируются. Проверьте интернет и нажмите, чтобы войти заново.',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: AppColors.textMuted,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(Icons.chevron_right_rounded,
+                                            color: AppColors.textMuted),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                               if (syncEnabled && email != null) ...[
                                 _divider(),
                                 Padding(
@@ -442,106 +519,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               ),
                                               overflow: TextOverflow.ellipsis,
                                             ),
+                                            ValueListenableBuilder<bool>(
+                                              valueListenable:
+                                                  GoogleCalendarService
+                                                      .instance.isSyncing,
+                                              builder: (context, syncing, _) {
+                                                if (!syncing) {
+                                                  return const SizedBox.shrink();
+                                                }
+                                                return Padding(
+                                                  padding: const EdgeInsets
+                                                      .only(top: 6),
+                                                  child: Row(
+                                                    children: [
+                                                      SizedBox(
+                                                        width: 12,
+                                                        height: 12,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color:
+                                                              AppColors.primary,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        'Синхронизация…',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: AppColors
+                                                              .textMuted,
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              },
+                                            ),
                                           ],
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                _divider(),
-                                ValueListenableBuilder<bool>(
-                                  valueListenable:
-                                      GoogleCalendarService.instance.isSyncing,
-                                  builder: (context, syncing, _) {
-                                    return InkWell(
-                                      onTap: syncing ? null : () => _syncAll(),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 14),
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              padding: const EdgeInsets.all(8),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.successLight,
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                              ),
-                                              child: syncing
-                                                  ? SizedBox(
-                                                      width: 20,
-                                                      height: 20,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                        color:
-                                                            AppColors.success,
-                                                      ),
-                                                    )
-                                                  : Icon(Icons.sync_rounded,
-                                                      color: AppColors.success,
-                                                      size: 20),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            Expanded(
-                                              child: Text(
-                                                syncing
-                                                    ? 'Синхронизация...'
-                                                    : 'Синхронизировать всё',
-                                                style: TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: AppColors.textDark,
-                                                ),
-                                              ),
-                                            ),
-                                            Icon(Icons.chevron_right_rounded,
-                                                color: AppColors.textMuted),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
                               ],
                             ]);
+                              },
+                            );
                           },
-                        );
-                      },
-                    ),
-
-                    StreamBuilder<bool>(
-                      stream: _adminService.watchIsAdmin(),
-                      builder: (context, adminSnap) {
-                        if (adminSnap.data != true) {
-                          return const SizedBox.shrink();
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 24),
-                            _sectionTitle('АДМИНИСТРИРОВАНИЕ'),
-                            _settingsCard([
-                              _settingsItem(
-                                icon: Icons.admin_panel_settings_rounded,
-                                color: AppColors.primary,
-                                title: 'Панель администратора',
-                                subtitle: 'Пользователи и статистика',
-                                trailing: Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: AppColors.textMuted,
-                                ),
-                                onTap: () {
-                                  Navigator.of(context).push<void>(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) =>
-                                          const AdminDashboardScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ]),
-                          ],
                         );
                       },
                     ),
@@ -644,8 +671,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _syncAll() async {
+  Future<void> _syncAll({bool silent = false}) async {
     final gcal = GoogleCalendarService.instance;
+    if (gcal.isSyncing.value) return;
     gcal.isSyncing.value = true;
 
     try {
@@ -685,11 +713,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               .updateGoal(goal.copyWith(calendarEventId: eventId));
         }
       }
-      if (mounted) {
+      if (!silent && mounted) {
         _toast('Синхронизация завершена!');
       }
     } catch (e) {
-      if (mounted) {
+      debugPrint('Auto sync failed: $e');
+      if (!silent && mounted) {
         _toast('Ошибка синхронизации', isError: true);
       }
     } finally {

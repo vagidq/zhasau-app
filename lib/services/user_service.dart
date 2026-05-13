@@ -1,15 +1,25 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import '../models/goal_model.dart';
 import '../models/goal_xp_rules.dart';
 import '../models/in_app_notification.dart';
 import '../models/task_model.dart';
 import '../models/user_profile.dart';
+import '../utils/firestore_ids.dart';
+import 'current_user_doc.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// ID документа `users/{...}` для текущего пользователя.
+  ///
+  /// После миграции на читаемые ID возвращает читаемое имя (`user-damir-x4f9`),
+  /// иначе — `auth uid` (старый формат). Кеш заполняется при старте приложения,
+  /// см. `CurrentUserDoc.bootstrap()`.
   String get userId {
+    final cached = CurrentUserDoc.cachedDocId();
+    if (cached != null) return cached;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw Exception('User not authenticated');
@@ -221,7 +231,16 @@ class UserService {
 
   // User profile
   Future<void> initializeUserProfile(String name, {String? email}) async {
-    await _firestore.collection('users').doc(userId).set({
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (authUid.isEmpty) {
+      throw Exception('User not authenticated');
+    }
+    final docId = makeReadableId(
+      'user',
+      name.trim().isNotEmpty ? name : (email ?? 'user'),
+    );
+    await _firestore.collection('users').doc(docId).set({
+      'uid': authUid,
       'name': name,
       if (email != null && email.isNotEmpty) 'email': email,
       'level': 1,
@@ -241,6 +260,7 @@ class UserService {
       'completionsBeforeNine': 0,
       'bio': '',
     });
+    CurrentUserDoc.rememberFor(authUid, docId);
   }
 
   Stream<Map<String, dynamic>?> getUserProfile() {
@@ -290,8 +310,10 @@ class UserService {
     required String title,
     required String body,
     String? achievementId,
+    String? goalId,
   }) async {
-    await _notificationsCollection.add({
+    final notifId = makeReadableId('notif', title.isNotEmpty ? title : type);
+    await _notificationsCollection.doc(notifId).set({
       'type': type,
       'title': title,
       'body': body,
@@ -299,7 +321,27 @@ class UserService {
       'createdAt': FieldValue.serverTimestamp(),
       if (achievementId != null && achievementId.isNotEmpty)
         'achievementId': achievementId,
+      if (goalId != null && goalId.isNotEmpty) 'goalId': goalId,
     });
+  }
+
+  /// Удаляет уведомления, привязанные к цели (например «Цель достигнута!» при откате бонуса).
+  Future<void> deleteInAppNotificationsWithGoalId(String goalId) async {
+    if (goalId.isEmpty) return;
+    try {
+      final snap = await _notificationsCollection
+          .where('goalId', isEqualTo: goalId)
+          .limit(40)
+          .get();
+      if (snap.docs.isEmpty) return;
+      final batch = _firestore.batch();
+      for (final d in snap.docs) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+    } catch (e, st) {
+      debugPrint('deleteInAppNotificationsWithGoalId: $e\n$st');
+    }
   }
 
   Future<void> markInAppNotificationRead(String notificationId) async {
